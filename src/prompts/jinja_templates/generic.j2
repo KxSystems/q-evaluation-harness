@@ -1,0 +1,4 @@
+{% if needs_context %}"""You are an expert q (KDB+) programmer. Here is your task:
+{{ prompt }}
+"""
+{% else %}{{ prompt }}{% endif %}
