@@ -16,10 +16,10 @@ Track the performance of Large Language Models on Q/kdb+ code generation tasks u
 | Rank | Model | Pass@1 | Pass@5 | Pass@10 |
 |------|-------|--------|--------|---------|
 | 🥇 | Grok 4 | **43.37%** | 68.45% | 74.32% |
-| 🥈 | Claude 4 Sonnet | 37.70% | 53.47% | 59.13% | 
-| 🥉 | Gemini 2.5 pro | 27.75% | 51.41% | 59.68% | 
+| 🥈 | Claude 4 Sonnet | 37.70% | 53.47% | 59.13% |
+| 🥉 | Gemini 2.5 pro | 27.75% | 51.41% | 59.68% |
 
-> 📈 **[View Complete Leaderboard →](https://your-org.github.io/q-evaluation-harness/leaderboard)**  
+> 📈 **[View Complete Leaderboard →](https://qeval.github.io/)**
 > *See full results, historical data, and detailed analysis*
 
 ---
