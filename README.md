@@ -16,10 +16,10 @@ Track the performance of Large Language Models on Q/kdb+ code generation tasks u
 | Rank | Model | Pass@1 | Pass@5 | Pass@10 |
 |------|-------|--------|--------|---------|
 | 🥇 | Grok 4 | **43.37%** | 68.45% | 74.32% |
-| 🥈 | Claude 4 Sonnet | 37.70% | 53.47% | 59.13% |
-| 🥉 | Gemini 2.5 pro | 27.75% | 51.41% | 59.68% |
+| 🥈 | Claude 4 Sonnet | 37.70% | 53.47% | 59.13% | 
+| 🥉 | Gemini 2.5 pro | 27.75% | 51.41% | 59.68% | 
 
-> 📈 **[View Complete Leaderboard →](https://qeval.github.io/)**
+> 📈 **[View Complete Leaderboard →](https://github.com/KxSystems/q-evaluation-harness/blob/main/docs/leaderboard.md)**  
 > *See full results, historical data, and detailed analysis*
 
 ---
@@ -38,7 +38,7 @@ Track the performance of Large Language Models on Q/kdb+ code generation tasks u
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/q-evaluation-harness
+git clone https://github.com/KxSystems/q-evaluation-harness.git
 cd q-evaluation-harness
 
 # Install dependencies with Poetry
@@ -58,7 +58,7 @@ eval $(poetry env activate)
 
 ### Mandatory: KDB Setup
 
-1. **Install KDB**: Standard install [KDB](https://code.kx.com/q/learn/install/) or follow [KDB-X](https://kdb-x.kx.com/sign-in)
+1. **Install KDB with PyKX license**: Standard install [KDB](https://kx.com/kdb-insights-personal-edition-license-download/) or follow [KDB-X](https://kdb-x.kx.com/sign-in)
 2. **For multithreaded execution**: Set `PYKX_THREADING=1` in your environment
 
 > 🚧 **Future**: We plan to support MCP/REST API for Q execution to remove the PyKX dependency requirement.
@@ -115,7 +115,7 @@ Help us grow the leaderboard! Submit your model evaluation results to contribute
 
 > 📋 **[Complete Submission Guide →](docs/submission_guide.md)**
 
-> 💬 **[Questions? Use GitHub Discussions →](https://github.com/kxsystems/q-evaluation-harness/discussions)**
+> 💬 **[Questions? Use GitHub Issues →](https://github.com/kxsystems/q-evaluation-harness/issues)**
 
 ---
 
