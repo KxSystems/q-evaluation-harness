@@ -58,7 +58,7 @@ eval $(poetry env activate)
 
 ### Mandatory: KDB Setup
 
-1. **Install KDB with PyKX license**: Standard install [KDB](https://kx.com/kdb-insights-personal-edition-license-download/) or follow [KDB-X](https://kdb-x.kx.com/sign-in)
+1. **Install KDB with PyKX license**: Standard install [KDB](https://kx.com/kdb-insights-personal-edition-license-download/) or follow [KDB-X](https://developer.kx.com/products/kdb-x/install)
 2. **For multithreaded execution**: Set `PYKX_THREADING=1` in your environment
 
 > 🚧 **Future**: We plan to support MCP/REST API for Q execution to remove the PyKX dependency requirement.
