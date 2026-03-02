@@ -37,6 +37,9 @@ from .constants import (
     DEFAULT_TEMPERATURE,
     DEFAULT_SEED,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_AGENT_TIMEOUT,
+    DEFAULT_AGENT_MAX_TURNS,
+    DEFAULT_AGENT_CONCURRENCY,
 )
 
 # Module-level logger
@@ -865,6 +868,56 @@ def profile_command(args: argparse.Namespace) -> None:
         logger.info("Ensure vLLM is installed: pip install vllm")
 
 
+def agent_run_command(args: argparse.Namespace) -> None:
+    """Handle the 'agent-run' subcommand."""
+    setup_logging(args.verbose)
+
+    from .agents.factory import create_agent_backend
+    from .agents.runner import run_agent_evaluation
+
+    # Build backend kwargs
+    backend_kwargs: Dict[str, Any] = {}
+    if args.backend == "codex" and args.reasoning_effort:
+        backend_kwargs["reasoning_effort"] = args.reasoning_effort
+
+    try:
+        backend = create_agent_backend(
+            backend_name=args.backend,
+            model=args.model,
+            max_turns=args.max_turns,
+            agent_instructions=args.agent_instructions,
+            timeout=args.timeout,
+            extra_args=args.extra_args,
+            **backend_kwargs,
+        )
+
+        results = asyncio.run(
+            run_agent_evaluation(
+                dataset=args.dataset,
+                backend=backend,
+                output_dir=args.output_dir,
+                concurrency=args.concurrency,
+                keep_workspaces=args.keep_workspaces,
+                problem_ids=args.problem_ids,
+            )
+        )
+
+        # Print headline result
+        pass_rate = results.get("pass_rate", 0)
+        total = results.get("total_solutions", 0)
+        passed = results.get("passed_solutions", 0)
+        logger.info(
+            f"Agent evaluation complete: "
+            f"{passed}/{total} passed ({pass_rate:.1%})"
+        )
+
+    except Exception as e:
+        logger.error(f"Agent evaluation failed: {e}")
+        if args.verbose >= 2:
+            logger.error(traceback.format_exc())
+        sys.exit(1)
+
+
 def list_command(args: argparse.Namespace) -> None:
     """Handle the 'list' subcommand."""
     setup_logging(args.verbose)
@@ -967,6 +1020,75 @@ def main() -> None:
         help="Run performance benchmarks after profiling"
     )
     profile_parser.set_defaults(func=profile_command)
+
+    # 'agent-run' subcommand
+    agent_parser = subparsers.add_parser(
+        "agent-run",
+        help="Evaluate coding agents (Claude Code, Codex) on Q problems",
+    )
+    agent_parser.add_argument("dataset", help="Dataset name")
+    agent_parser.add_argument(
+        "--backend",
+        required=True,
+        choices=["claude-code", "codex"],
+        help="Agent backend to use",
+    )
+    agent_parser.add_argument(
+        "--model", required=True, help="Model name passed to the agent CLI"
+    )
+    agent_parser.add_argument(
+        "--max-turns",
+        type=int,
+        default=DEFAULT_AGENT_MAX_TURNS,
+        help=f"Maximum agent iterations (default: {DEFAULT_AGENT_MAX_TURNS})",
+    )
+    agent_parser.add_argument(
+        "--agent-instructions",
+        type=str,
+        default=None,
+        help="Path to instructions file (written as CLAUDE.md or AGENTS.md)",
+    )
+    agent_parser.add_argument(
+        "--reasoning-effort",
+        type=str,
+        default="high",
+        help="Codex reasoning effort: minimal, low, medium, high, xhigh (default: high)",
+    )
+    agent_parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=DEFAULT_AGENT_CONCURRENCY,
+        help=f"Max parallel agent invocations (default: {DEFAULT_AGENT_CONCURRENCY})",
+    )
+    agent_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_AGENT_TIMEOUT,
+        help=f"Per-problem timeout in seconds (default: {DEFAULT_AGENT_TIMEOUT})",
+    )
+    agent_parser.add_argument(
+        "--output-dir", "-o", default="./outputs", help="Output directory"
+    )
+    agent_parser.add_argument(
+        "--keep-workspaces",
+        action="store_true",
+        help="Preserve workspace directories for debugging",
+    )
+    agent_parser.add_argument(
+        "--problem-ids",
+        type=int,
+        nargs="*",
+        default=None,
+        help="Only evaluate specific problem IDs",
+    )
+    agent_parser.add_argument(
+        "--extra-args",
+        type=str,
+        nargs="*",
+        default=None,
+        help="Additional arguments passed to agent CLI",
+    )
+    agent_parser.set_defaults(func=agent_run_command)
 
     # 'list' subcommand
     list_parser = subparsers.add_parser(

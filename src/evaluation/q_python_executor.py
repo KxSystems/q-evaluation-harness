@@ -589,38 +589,73 @@ class QPythonExecutor(BaseTestExecutor):
         """
         logger.debug("Preprocessing test for smart equality")
 
-        # Only process if we have a check function with == comparisons
-        if "def check(" not in test_str or "==" not in test_str:
+        # Only process if we have a check function with comparisons we handle
+        if "def check(" not in test_str:
             logger.debug("Test preprocessing not needed, returning original")
+            return test_str
+        # Need == or identity comparisons (is True, is False, is None, is not)
+        has_eq = "==" in test_str
+        has_is = " is " in test_str
+        if not has_eq and not has_is:
+            logger.debug("No == or 'is' comparisons found, returning original")
             return test_str
 
         try:
             import ast
 
             class EqualityTransformer(ast.NodeTransformer):
-                """Transform assert x == y statements to
-                assert smart_equal(x, y)."""
+                """Transform assert x == y and assert x is y statements
+                to assert smart_equal(x, y)."""
 
                 def visit_Assert(self, node: ast.Assert) -> ast.AST:
-                    """Visit assert nodes and transform == comparisons."""
-                    # Only transform assert statements (not assert not)
+                    """Visit assert nodes and transform == and is comparisons."""
+                    if not isinstance(node.test, ast.Compare):
+                        return self.generic_visit(node)
+
                     if (
-                        isinstance(node.test, ast.Compare)
-                        and len(node.test.ops) == 1
-                        and isinstance(node.test.ops[0], ast.Eq)
-                        and len(node.test.comparators) == 1
+                        len(node.test.ops) != 1
+                        or len(node.test.comparators) != 1
                     ):
-                        # Create smart_equal(left, right) function call
-                        smart_equal_call = ast.Call(
+                        return self.generic_visit(node)
+
+                    op = node.test.ops[0]
+
+                    # Transform == comparisons
+                    if isinstance(op, ast.Eq):
+                        node.test = ast.Call(
                             func=ast.Name(id="smart_equal", ctx=ast.Load()),
                             args=[node.test.left, node.test.comparators[0]],
                             keywords=[],
                         )
-
-                        # Replace the test with our function call
-                        node.test = smart_equal_call
                         logger.debug(
-                            "Transformed assert statement to use smart_equal"
+                            "Transformed assert == to use smart_equal"
+                        )
+
+                    # Transform `is` comparisons (e.g., `assert x is True`)
+                    # pykx returns numpy.bool_ which fails identity checks
+                    elif isinstance(op, ast.Is):
+                        node.test = ast.Call(
+                            func=ast.Name(id="smart_equal", ctx=ast.Load()),
+                            args=[node.test.left, node.test.comparators[0]],
+                            keywords=[],
+                        )
+                        logger.debug(
+                            "Transformed assert is to use smart_equal"
+                        )
+
+                    # Transform `is not` comparisons
+                    elif isinstance(op, ast.IsNot):
+                        smart_call = ast.Call(
+                            func=ast.Name(id="smart_equal", ctx=ast.Load()),
+                            args=[node.test.left, node.test.comparators[0]],
+                            keywords=[],
+                        )
+                        node.test = ast.UnaryOp(
+                            op=ast.Not(), operand=smart_call
+                        )
+                        logger.debug(
+                            "Transformed assert is not to use "
+                            "not smart_equal"
                         )
 
                     return self.generic_visit(node)
@@ -645,16 +680,110 @@ class QPythonExecutor(BaseTestExecutor):
             logger.debug(f"Failed to parse test code: {e}, returning original")
             return test_str
 
-    def _smart_equal(self, a: Any, b: Any) -> bool:
-        """Robust equality function that handles arrays, lists, and scalars."""
-        logger.debug("Performing smart equality comparison")
-        logger.debug(f"a: {a}, b: {b}")
+    def _to_python_native(self, obj: Any) -> Any:
+        """Convert pykx/numpy types to native Python types for comparison.
 
-        # Convert both to bytes for pykx compatibility
+        Handles: pykx atoms -> Python scalars, numpy types -> Python types,
+        Q null values -> Python None, empty typed vectors -> [].
+        """
+        import numpy as np
+
+        # Handle None/null early
+        if obj is None:
+            return None
+
+        # Convert pykx types to Python native
+        try:
+            import pykx as kx
+
+            # Q null values -> Python None
+            if isinstance(obj, (kx.LongAtom, kx.IntAtom, kx.ShortAtom,
+                                kx.FloatAtom, kx.RealAtom)):
+                py_val = obj.py()
+                # pykx null atoms convert to special values
+                if isinstance(py_val, float) and np.isnan(py_val):
+                    return None
+                # numpy int null (e.g., -9223372036854775808 for 0N)
+                if isinstance(py_val, (int, np.integer)):
+                    if py_val == np.iinfo(np.int64).min:
+                        return None
+                    if py_val == np.iinfo(np.int32).min:
+                        return None
+                return py_val
+
+            # pykx boolean -> Python bool
+            if isinstance(obj, kx.BooleanAtom):
+                return bool(obj.py())
+
+            # pykx generic null (::) -> Python None
+            if isinstance(obj, kx.Identity):
+                return None
+
+            # pykx vectors -> Python native types
+            if isinstance(obj, kx.Vector):
+                py_val = obj.py()
+                # Don't decompose strings/bytes — they're already native
+                # (kx.CharVector.py() → bytes, kx.SymbolVector.py() → list)
+                if isinstance(py_val, (bytes, str)):
+                    return py_val
+                if hasattr(py_val, 'tolist'):
+                    return py_val.tolist()
+                return list(py_val) if py_val is not None else []
+
+            # pykx dictionary -> Python dict
+            if isinstance(obj, kx.Dictionary):
+                return dict(obj.py())
+
+        except (ImportError, AttributeError, TypeError, ValueError):
+            pass
+
+        # Handle numpy types
+        if isinstance(obj, np.integer):
+            if obj == np.iinfo(obj.dtype).min:
+                return None
+            return int(obj)
+        if isinstance(obj, np.floating):
+            if np.isnan(obj):
+                return None
+            return float(obj)
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, np.ndarray):
+            if obj.size == 0:
+                return []
+            return obj.tolist()
+
+        return obj
+
+    def _smart_equal(self, a: Any, b: Any) -> bool:
+        """Robust equality function that handles arrays, lists, and scalars.
+
+        Handles Q/pykx type mismatches including:
+        - Empty typed vectors vs Python []
+        - Q null (0N, (::)) vs Python None
+        - pykx numeric atoms vs Python int/float
+        - numpy.bool_ vs Python bool
+        - Byte vectors vs Python strings
+        """
+        logger.debug("Performing smart equality comparison")
+        logger.debug(f"a: {a} (type: {type(a).__name__}), "
+                     f"b: {b} (type: {type(b).__name__})")
+
+        # Phase 0: Normalize pykx/numpy types to Python native
+        a = self._to_python_native(a)
+        b = self._to_python_native(b)
+
+        # Phase 0.5: Handle None comparison (after normalization)
+        if a is None and b is None:
+            return True
+        if a is None or b is None:
+            return False
+
+        # Phase 1: Convert strings to bytes for pykx compatibility
         a = self._to_bytes(a)
         b = self._to_bytes(b)
 
-        # First try direct equality for simple cases
+        # Phase 2: Try direct equality for simple cases
         try:
             result = a == b
 
@@ -681,7 +810,7 @@ class QPythonExecutor(BaseTestExecutor):
                 f"Primary equality comparison failed: {e}, trying fallbacks"
             )
 
-        # Handle mixed iterable types (list vs tuple, etc.)
+        # Phase 3: Handle mixed iterable types (list vs tuple, etc.)
         # But exclude strings and bytes which are also iterable
         if (
             hasattr(a, "__iter__")
@@ -693,6 +822,10 @@ class QPythonExecutor(BaseTestExecutor):
                 # Convert both to lists for comparison
                 list_a = list(a)
                 list_b = list(b)
+
+                # Both empty -> equal (handles typed empty lists)
+                if len(list_a) == 0 and len(list_b) == 0:
+                    return True
 
                 # Check if they have the same length first
                 if len(list_a) != len(list_b):
@@ -708,5 +841,9 @@ class QPythonExecutor(BaseTestExecutor):
             except (TypeError, ValueError, RecursionError):
                 pass
 
-        logger.warning("All equality comparison methods failed")
+        logger.warning(
+            f"All equality comparison methods failed: "
+            f"a={a!r} (type: {type(a).__name__}), "
+            f"b={b!r} (type: {type(b).__name__})"
+        )
         return False
