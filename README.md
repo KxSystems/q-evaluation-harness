@@ -27,6 +27,7 @@ Track the performance of Large Language Models on Q/kdb+ code generation tasks u
 ## Features
 
 - 🚀 **Simple CLI**: One-command evaluation with `qeval run <dataset> <model>`.
+- 🤖 **Agent Evaluation**: Evaluate coding agents (Claude Code, Codex) that iteratively write and test Q code.
 - 📊 **Q-HumanEval Dataset**: 164 hand-crafted Q programming problems.
 - 🔧 **Multi-Model Support**: Supports both closed-source APIs and open-source Hugging Face models.
 - 📈 **Standard Metrics**: Pass@1, Pass@5, Pass@10 with isolated execution.
@@ -109,6 +110,60 @@ qeval run q-humaneval your-model --num-samples 50
 
 ---
 
+## Agent Evaluation
+
+Evaluate coding agents that can iteratively write, test, and fix Q solutions. Unlike standard evaluation (which generates code in a single pass), agent mode gives models access to a Q interpreter and lets them iterate on their solutions.
+
+### Supported Backends
+
+| Backend | Agent CLI | Description |
+|---------|-----------|-------------|
+| `claude-code` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Anthropic's agentic coding tool |
+| `codex` | [Codex](https://github.com/openai/codex) | OpenAI's agentic coding tool |
+
+### Running Agent Evaluations
+
+```bash
+# Evaluate Claude Code with Opus
+qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6
+
+# Evaluate Codex with GPT-5.3
+qeval agent-run q-humaneval --backend codex --model gpt-5.3-codex
+
+# Customize concurrency, timeout, and provide a style guide
+qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6 \
+  --concurrency 10 --timeout 300 \
+  --agent-instructions docs/q-style-guide.md
+
+# Run specific problems only
+qeval agent-run q-humaneval --backend codex --model gpt-5.3-codex \
+  --problem-ids 0 1 2 3
+
+# Keep workspaces for debugging
+qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6 \
+  --keep-workspaces
+```
+
+### Agent Leaderboard
+
+| Rank | Model | Backend | Pass@1 |
+|------|-------|---------|--------|
+| 🥇 | GPT-5.3 | Codex | **83.54%** |
+| 🥈 | Claude Opus 4.6 | Claude Code | **81.71%** |
+
+> Agent mode results are not directly comparable to the standard leaderboard — agents get a single attempt but can iterate with tool use, while standard evaluation generates 50 independent samples per problem.
+
+### How Agent Evaluation Works
+
+Each problem is evaluated in an isolated workspace containing:
+- The problem prompt and function signature
+- A `CLAUDE.md` or `AGENTS.md` with instructions (if `--agent-instructions` is provided)
+- Access to a Q interpreter for testing
+
+The agent writes a `solution.q` file, iterates until tests pass (or hits the turn/timeout limit), and the final solution is scored pass/fail. Results include wall time, token usage, cost, and turn counts per problem.
+
+---
+
 ## Submission Guidelines
 
 Help us grow the leaderboard! Submit your model evaluation results to contribute to the Q/kdb+ AI development community.
@@ -135,6 +190,7 @@ poetry run pytest
 ```
 
 ### Roadmap
+- [x] **Agent Evaluation**: Evaluate coding agents (Claude Code, Codex) with iterative tool use.
 - [ ] **Q-MBPP**: Basic programming problems in Q.
 - [ ] **Custom Metrics**: Flexible framework for adding custom evaluation metrics beyond Pass@k.
 - [ ] **Sandboxed Execution**: Secure, isolated code evaluation environment.
