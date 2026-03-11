@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+import shutil
 from typing import Any, Dict, List, Optional
 
 import logging
@@ -42,12 +43,14 @@ class AgentBackend(ABC):
         agent_instructions: Optional[str] = None,
         timeout: float = 300.0,
         extra_args: Optional[List[str]] = None,
+        skill_dirs: Optional[List[str]] = None,
     ) -> None:
         self.model = model
         self.max_turns = max_turns
         self.agent_instructions = agent_instructions
         self.timeout = timeout
         self.extra_args = extra_args or []
+        self.skill_dirs = skill_dirs or []
 
     @property
     @abstractmethod
@@ -135,6 +138,23 @@ class AgentBackend(ABC):
         )
         if combined.strip():
             (workspace / self.instruction_filename).write_text(combined)
+
+        # Install skills into workspace for both Claude Code and Codex
+        if self.skill_dirs:
+            for skill_dir in self.skill_dirs:
+                skill_path = Path(skill_dir)
+                if not skill_path.is_dir():
+                    logger.warning(f"Skill dir not found: {skill_dir}")
+                    continue
+                skill_name = skill_path.name
+                # Claude Code: .claude/skills/<name>/
+                claude_dest = workspace / ".claude" / "skills" / skill_name
+                claude_dest.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(skill_path, claude_dest, dirs_exist_ok=True)
+                # Codex: .agents/skills/<name>/
+                codex_dest = workspace / ".agents" / "skills" / skill_name
+                codex_dest.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(skill_path, codex_dest, dirs_exist_ok=True)
 
         return workspace
 

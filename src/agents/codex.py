@@ -50,6 +50,7 @@ class CodexBackend(AgentBackend):
         agent_instructions: Optional[str] = None,
         timeout: float = 300.0,
         extra_args: Optional[List[str]] = None,
+        skill_dirs: Optional[List[str]] = None,
     ) -> None:
         super().__init__(
             model=model,
@@ -57,6 +58,7 @@ class CodexBackend(AgentBackend):
             agent_instructions=agent_instructions,
             timeout=timeout,
             extra_args=extra_args,
+            skill_dirs=skill_dirs,
         )
         self.reasoning_effort = reasoning_effort
 

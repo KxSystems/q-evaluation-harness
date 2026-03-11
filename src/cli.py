@@ -888,6 +888,7 @@ def agent_run_command(args: argparse.Namespace) -> None:
             agent_instructions=args.agent_instructions,
             timeout=args.timeout,
             extra_args=args.extra_args,
+            skill_dirs=args.skill_dirs,
             **backend_kwargs,
         )
 
@@ -1080,6 +1081,13 @@ def main() -> None:
         nargs="*",
         default=None,
         help="Only evaluate specific problem IDs",
+    )
+    agent_parser.add_argument(
+        "--skill-dirs",
+        type=str,
+        nargs="*",
+        default=None,
+        help="Paths to skill directories to install in agent workspaces",
     )
     agent_parser.add_argument(
         "--extra-args",

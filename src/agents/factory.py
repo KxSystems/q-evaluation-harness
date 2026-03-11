@@ -20,6 +20,7 @@ def create_agent_backend(
     agent_instructions: Optional[str] = None,
     timeout: float = 300.0,
     extra_args: Optional[List[str]] = None,
+    skill_dirs: Optional[List[str]] = None,
     **kwargs: Any,
 ) -> AgentBackend:
     """Create an agent backend instance.
@@ -31,6 +32,7 @@ def create_agent_backend(
         agent_instructions: Path to instruction file or raw text.
         timeout: Per-problem timeout in seconds.
         extra_args: Additional CLI arguments.
+        skill_dirs: Paths to skill directories to install in workspaces.
         **kwargs: Backend-specific arguments (e.g., reasoning_effort for codex).
 
     Returns:
@@ -53,6 +55,7 @@ def create_agent_backend(
         agent_instructions=agent_instructions,
         timeout=timeout,
         extra_args=extra_args,
+        skill_dirs=skill_dirs,
         **kwargs,
     )
 

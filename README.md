@@ -130,10 +130,17 @@ qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6
 # Evaluate Codex with GPT-5.3
 qeval agent-run q-humaneval --backend codex --model gpt-5.3-codex
 
-# Customize concurrency, timeout, and provide a style guide
+# Install skills into agent workspaces (works with both backends)
 qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6 \
-  --concurrency 10 --timeout 300 \
+  --skill-dirs path/to/qdex/skills/code
+
+# Provide a style guide as inline instructions (legacy approach)
+qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6 \
   --agent-instructions docs/q-style-guide.md
+
+# Customize concurrency and timeout
+qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6 \
+  --concurrency 10 --timeout 300
 
 # Run specific problems only
 qeval agent-run q-humaneval --backend codex --model gpt-5.3-codex \
@@ -143,6 +150,12 @@ qeval agent-run q-humaneval --backend codex --model gpt-5.3-codex \
 qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6 \
   --keep-workspaces
 ```
+
+### Agent Skills
+
+The `--skill-dirs` option installs [Agent Skills](https://agentskills.io) into each agent workspace, enabling agents to auto-load domain-specific guidance. Each path should point to a skill directory containing a `SKILL.md` file. Skills are installed into both `.claude/skills/` (for Claude Code) and `.agents/skills/` (for Codex), so the same `--skill-dirs` argument works with any backend.
+
+For Q evaluations, the [qdex](https://github.com/kx/qdex) plugin provides a `/qdex:code` skill with idiomatic Q coding guidance that agents invoke automatically when writing Q code.
 
 ### Agent Leaderboard
 
@@ -157,6 +170,7 @@ qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6 \
 
 Each problem is evaluated in an isolated workspace containing:
 - The problem prompt and function signature
+- Agent skills in `.claude/skills/` and `.agents/skills/` (if `--skill-dirs` is provided)
 - A `CLAUDE.md` or `AGENTS.md` with instructions (if `--agent-instructions` is provided)
 - Access to a Q interpreter for testing
 
