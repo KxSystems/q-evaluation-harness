@@ -16,6 +16,12 @@ CODEX_DEFAULT_INSTRUCTIONS = """\
 
 You MUST follow this exact workflow. Do NOT skip verification.
 
+## 0. Load relevant skills
+Skills live under .agents/skills/. List that directory and read the SKILL.md
+for any skill whose front-matter description matches this task (e.g., a Q/kdb
+skill is directly relevant — use it for syntax, idioms, and error diagnosis).
+Skip this step only if no skill is relevant.
+
 ## 1. Write solution
 Read problem.md. Write your Q function in solution.q.
 
@@ -51,6 +57,7 @@ class CodexBackend(AgentBackend):
         timeout: float = 300.0,
         extra_args: Optional[List[str]] = None,
         skill_dirs: Optional[List[str]] = None,
+        save_events: bool = False,
     ) -> None:
         super().__init__(
             model=model,
@@ -59,6 +66,7 @@ class CodexBackend(AgentBackend):
             timeout=timeout,
             extra_args=extra_args,
             skill_dirs=skill_dirs,
+            save_events=save_events,
         )
         self.reasoning_effort = reasoning_effort
 
@@ -109,23 +117,56 @@ class CodexBackend(AgentBackend):
             f"Invoking Codex for {task_id_str}: {' '.join(cmd[:8])}..."
         )
 
+        events_path = workspace / "events.jsonl"
+        events_fh = open(events_path, "wb") if self.save_events else None
+
         start_time = time.monotonic()
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
+                stdout=events_fh if events_fh else asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(workspace),
             )
 
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(input=prompt.encode("utf-8")),
-                timeout=self.timeout,
-            )
+            if events_fh:
+                # stdout streams directly to events.jsonl so partial output
+                # survives a timeout cancel. Manage stdin/wait manually.
+                if process.stdin:
+                    try:
+                        process.stdin.write(prompt.encode("utf-8"))
+                        await process.stdin.drain()
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    finally:
+                        process.stdin.close()
+                try:
+                    await asyncio.wait_for(
+                        process.wait(), timeout=self.timeout
+                    )
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+                    raise
+                stderr_bytes = (
+                    await process.stderr.read() if process.stderr else b""
+                )
+                events_fh.close()
+                events_fh = None
+                stdout = (
+                    events_path.read_text(errors="replace")
+                    if events_path.exists()
+                    else ""
+                )
+            else:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    process.communicate(input=prompt.encode("utf-8")),
+                    timeout=self.timeout,
+                )
+                stdout = stdout_bytes.decode("utf-8", errors="replace")
 
             wall_time = time.monotonic() - start_time
-            stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")
 
             if process.returncode != 0:
@@ -166,6 +207,9 @@ class CodexBackend(AgentBackend):
                 error=f"Timed out after {self.timeout}s",
                 workspace_path=str(workspace),
             )
+        finally:
+            if events_fh and not events_fh.closed:
+                events_fh.close()
 
     def _parse_output(
         self, stdout: str, workspace: Path

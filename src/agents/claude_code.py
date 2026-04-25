@@ -17,6 +17,12 @@ CLAUDE_CODE_DEFAULT_INSTRUCTIONS = """\
 
 Always verify your solution before finishing.
 
+## 0. Load relevant skills
+Skills live under .claude/skills/. List that directory and read the SKILL.md
+for any skill whose front-matter description matches this task (e.g., a Q/kdb
+skill is directly relevant — use it for syntax, idioms, and error diagnosis).
+Skip this step only if no skill is relevant.
+
 ## 1. Write solution
 Read problem.md. Write your Q function in solution.q.
 
@@ -69,12 +75,16 @@ class ClaudeCodeBackend(AgentBackend):
             "--model",
             self.model,
             "--output-format",
-            "json",
+            "stream-json" if self.save_events else "json",
             "--max-turns",
             str(self.max_turns),
             "--dangerously-skip-permissions",
             "--no-session-persistence",
         ]
+
+        # stream-json requires the CLI's --verbose flag to emit per-event records
+        if self.save_events:
+            cmd.append("--verbose")
 
         # Note: agent instructions are written as CLAUDE.md in the workspace
         # by prepare_workspace(). Claude Code auto-reads CLAUDE.md from its
@@ -88,23 +98,48 @@ class ClaudeCodeBackend(AgentBackend):
         # (e.g. when the harness is run from within a Claude Code session)
         env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
 
+        events_path = workspace / "events.jsonl"
+        events_fh = open(events_path, "wb") if self.save_events else None
+
         start_time = time.monotonic()
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdout=asyncio.subprocess.PIPE,
+                stdout=events_fh if events_fh else asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(workspace),
                 env=env,
             )
 
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
-                timeout=self.timeout,
-            )
+            if events_fh:
+                # stdout streams directly to events.jsonl so partial output
+                # survives a timeout cancel.
+                try:
+                    await asyncio.wait_for(
+                        process.wait(), timeout=self.timeout
+                    )
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+                    raise
+                stderr_bytes = (
+                    await process.stderr.read() if process.stderr else b""
+                )
+                events_fh.close()
+                events_fh = None
+                stdout = (
+                    events_path.read_text(errors="replace")
+                    if events_path.exists()
+                    else ""
+                )
+            else:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=self.timeout,
+                )
+                stdout = stdout_bytes.decode("utf-8", errors="replace")
 
             wall_time = time.monotonic() - start_time
-            stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")
 
             if process.returncode != 0:
@@ -113,7 +148,10 @@ class ClaudeCodeBackend(AgentBackend):
                     f"for {task_id_str}: {stderr[:200]}"
                 )
 
-            metadata = self._parse_output(stdout)
+            if self.save_events:
+                metadata = self._parse_stream_json(stdout)
+            else:
+                metadata = self._parse_output(stdout)
             task_id = int(str(task_id_str).split("_")[-1])
 
             return AgentResult(
@@ -146,6 +184,9 @@ class ClaudeCodeBackend(AgentBackend):
                 error=f"Timed out after {self.timeout}s",
                 workspace_path=str(workspace),
             )
+        finally:
+            if events_fh and not events_fh.closed:
+                events_fh.close()
 
     def _parse_output(self, stdout: str) -> Dict[str, Any]:
         """Parse Claude Code JSON output for telemetry."""
@@ -166,3 +207,35 @@ class ClaudeCodeBackend(AgentBackend):
                 "treating as plain text"
             )
             return {"result_text": stdout}
+
+    def _parse_stream_json(self, stdout: str) -> Dict[str, Any]:
+        """Parse Claude Code stream-json (JSONL) output for telemetry.
+
+        The final event of type 'result' carries the same aggregate fields
+        as the single-shot json format.
+        """
+        result_event: Dict[str, Any] = {}
+        for line in stdout.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if event.get("type") == "result":
+                result_event = event
+
+        if not result_event:
+            logger.debug("No 'result' event in claude stream-json output")
+            return {"result_text": stdout}
+
+        usage = result_event.get("usage", {})
+        return {
+            "session_id": result_event.get("session_id"),
+            "num_turns": result_event.get("num_turns"),
+            "input_tokens": usage.get("input_tokens"),
+            "output_tokens": usage.get("output_tokens"),
+            "cost_usd": result_event.get("total_cost_usd"),
+            "result_text": result_event.get("result", ""),
+        }

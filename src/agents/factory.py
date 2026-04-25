@@ -21,6 +21,7 @@ def create_agent_backend(
     timeout: float = 300.0,
     extra_args: Optional[List[str]] = None,
     skill_dirs: Optional[List[str]] = None,
+    save_events: bool = False,
     **kwargs: Any,
 ) -> AgentBackend:
     """Create an agent backend instance.
@@ -56,6 +57,7 @@ def create_agent_backend(
         timeout=timeout,
         extra_args=extra_args,
         skill_dirs=skill_dirs,
+        save_events=save_events,
         **kwargs,
     )
 

@@ -44,6 +44,7 @@ class AgentBackend(ABC):
         timeout: float = 300.0,
         extra_args: Optional[List[str]] = None,
         skill_dirs: Optional[List[str]] = None,
+        save_events: bool = False,
     ) -> None:
         self.model = model
         self.max_turns = max_turns
@@ -51,6 +52,7 @@ class AgentBackend(ABC):
         self.timeout = timeout
         self.extra_args = extra_args or []
         self.skill_dirs = skill_dirs or []
+        self.save_events = save_events
 
     @property
     @abstractmethod

@@ -889,6 +889,7 @@ def agent_run_command(args: argparse.Namespace) -> None:
             timeout=args.timeout,
             extra_args=args.extra_args,
             skill_dirs=args.skill_dirs,
+            save_events=args.save_events,
             **backend_kwargs,
         )
 
@@ -1095,6 +1096,15 @@ def main() -> None:
         nargs="*",
         default=None,
         help="Additional arguments passed to agent CLI",
+    )
+    agent_parser.add_argument(
+        "--save-events",
+        action="store_true",
+        help=(
+            "Persist the agent's full event stream (tool calls, reasoning) "
+            "to <workspace>/events.jsonl for auditing skill activation, "
+            "tool selection, etc."
+        ),
     )
     agent_parser.set_defaults(func=agent_run_command)
 
