@@ -164,7 +164,7 @@ The `--skill-dirs` option installs [Agent Skills](https://agentskills.io) into e
 
 > **Note:** In headless / non-interactive contexts, agents do not reliably auto-load skills based on description matching alone. The harness's built-in workflow instructions (`CLAUDE.md` / `AGENTS.md`) explicitly tell the agent to read `q-kdb/SKILL.md` before writing any Q code. If you install skills under a different name, update the instructions accordingly with `--agent-instructions`.
 
-For Q evaluations, the recommended skill is `q-kdb` from the [claude-skills](https://gitlab.com/kxdev/kxinsights/data-science/ai-solutions-team/claude-skills) repo, which covers q syntax, common errors, shell-running idioms, and Python→Q translations. The [qdex](https://github.com/kx/qdex) plugin previously bundled similar guidance under `/qdex:code`.
+For Q evaluations, point `--skill-dirs` at any skill directory whose `SKILL.md` covers q syntax, common errors, shell-running idioms, and Python→Q translations. The [qdex](https://github.com/kx/qdex) plugin previously bundled similar guidance under `/qdex:code`.
 
 ### Agent Leaderboard
 
