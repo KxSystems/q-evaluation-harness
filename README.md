@@ -124,38 +124,47 @@ Evaluate coding agents that can iteratively write, test, and fix Q solutions. Un
 ### Running Agent Evaluations
 
 ```bash
-# Evaluate Claude Code with Opus
-qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6
+# Evaluate Claude Code with Opus 4.7 (use --timeout 600 — opus iterates a lot)
+qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-7 \
+  --timeout 600
 
-# Evaluate Codex with GPT-5.3
-qeval agent-run q-humaneval --backend codex --model gpt-5.3-codex
+# Evaluate Codex with GPT-5.5
+qeval agent-run q-humaneval --backend codex --model gpt-5.5
 
-# Install skills into agent workspaces (works with both backends)
-qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6 \
-  --skill-dirs path/to/qdex/skills/code
+# Install a skill (e.g. q-kdb) into agent workspaces — strongly recommended
+qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-7 \
+  --skill-dirs path/to/claude-skills/skills/q-kdb
 
-# Provide a style guide as inline instructions (legacy approach)
-qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6 \
-  --agent-instructions docs/q-style-guide.md
+# Capture the agent's full event stream for auditing skill activation,
+# tool calls, and reasoning. Saved as <workspace>/events.jsonl.
+qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-7 \
+  --save-events --keep-workspaces
+
+# Override the built-in workflow instructions with your own (the default
+# instructions already cover skill loading, parse-checking, and verification).
+qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-7 \
+  --agent-instructions path/to/custom-instructions.md
 
 # Customize concurrency and timeout
-qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6 \
-  --concurrency 10 --timeout 300
+qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-7 \
+  --concurrency 10 --timeout 600
 
 # Run specific problems only
-qeval agent-run q-humaneval --backend codex --model gpt-5.3-codex \
+qeval agent-run q-humaneval --backend codex --model gpt-5.5 \
   --problem-ids 0 1 2 3
 
 # Keep workspaces for debugging
-qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-6 \
+qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-7 \
   --keep-workspaces
 ```
 
 ### Agent Skills
 
-The `--skill-dirs` option installs [Agent Skills](https://agentskills.io) into each agent workspace, enabling agents to auto-load domain-specific guidance. Each path should point to a skill directory containing a `SKILL.md` file. Skills are installed into both `.claude/skills/` (for Claude Code) and `.agents/skills/` (for Codex), so the same `--skill-dirs` argument works with any backend.
+The `--skill-dirs` option installs [Agent Skills](https://agentskills.io) into each agent workspace and instructs the agent to read them. Each path should point to a skill directory containing a `SKILL.md` file. Skills are installed into both `.claude/skills/` (for Claude Code) and `.agents/skills/` (for Codex), so the same `--skill-dirs` argument works with any backend.
 
-For Q evaluations, the [qdex](https://github.com/kx/qdex) plugin provides a `/qdex:code` skill with idiomatic Q coding guidance that agents invoke automatically when writing Q code.
+> **Note:** In headless / non-interactive contexts, agents do not reliably auto-load skills based on description matching alone. The harness's built-in workflow instructions (`CLAUDE.md` / `AGENTS.md`) explicitly tell the agent to read `q-kdb/SKILL.md` before writing any Q code. If you install skills under a different name, update the instructions accordingly with `--agent-instructions`.
+
+For Q evaluations, the recommended skill is `q-kdb` from the [claude-skills](https://gitlab.com/kxdev/kxinsights/data-science/ai-solutions-team/claude-skills) repo, which covers q syntax, common errors, shell-running idioms, and Python→Q translations. The [qdex](https://github.com/kx/qdex) plugin previously bundled similar guidance under `/qdex:code`.
 
 ### Agent Leaderboard
 
@@ -169,12 +178,15 @@ For Q evaluations, the [qdex](https://github.com/kx/qdex) plugin provides a `/qd
 ### How Agent Evaluation Works
 
 Each problem is evaluated in an isolated workspace containing:
-- The problem prompt and function signature
+- The problem prompt and function signature in `problem.md`
+- A starter `solution.q` with the function stub
+- A `CLAUDE.md` (Claude Code) or `AGENTS.md` (Codex) with the default workflow instructions, optionally augmented or replaced via `--agent-instructions`
 - Agent skills in `.claude/skills/` and `.agents/skills/` (if `--skill-dirs` is provided)
-- A `CLAUDE.md` or `AGENTS.md` with instructions (if `--agent-instructions` is provided)
 - Access to a Q interpreter for testing
 
-The agent writes a `solution.q` file, iterates until tests pass (or hits the turn/timeout limit), and the final solution is scored pass/fail. Results include wall time, token usage, cost, and turn counts per problem.
+The agent writes its final implementation to `solution.q`, iterating until it considers the work done or the per-task `--timeout` is hit. Note: neither the Claude Code CLI nor the Codex CLI enforces a turn cap, so `--max-turns` is a soft warning threshold only — `--timeout` is the enforced backstop. Results include wall time, token usage, cost, and the actual turn count per problem.
+
+When `--save-events` is set, each workspace also gets an `events.jsonl` file containing the agent's full event stream (tool calls, model thinking, command results), plus an `events.stderr.log` for the CLI's debug output. These are useful for verifying which skills the agent actually loaded and where it spent its turns.
 
 ---
 
