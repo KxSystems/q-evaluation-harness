@@ -15,13 +15,12 @@ logger = logging.getLogger(__name__)
 CLAUDE_CODE_DEFAULT_INSTRUCTIONS = """\
 # Workflow
 
-Always verify your solution before finishing.
+You are solving a Q/kdb+ task. Always verify your solution before finishing.
 
-## 0. Load relevant skills
-Skills live under .claude/skills/. List that directory and read the SKILL.md
-for any skill whose front-matter description matches this task (e.g., a Q/kdb
-skill is directly relevant — use it for syntax, idioms, and error diagnosis).
-Skip this step only if no skill is relevant.
+## 0. Load the q-kdb skill
+Read .claude/skills/q-kdb/SKILL.md before writing any code. It contains
+syntax rules, common errors, and idioms you will need. This step is
+mandatory for every task.
 
 ## 1. Write solution
 Read problem.md. Write your Q function in solution.q.
@@ -31,9 +30,12 @@ Run: q solution.q -q <<< "exit 0"
 If there is any error, fix solution.q and run again.
 
 ## 3. Test with examples
-Pick 2-3 examples from problem.md. Test in Q:
-  q -q <<< "\\\\l solution.q; show FUNC[arg1;arg2]; exit 0"
-where FUNC is the function name from solution.q.
+Pick 2-3 examples from problem.md. Test by passing solution.q as q's script
+argument so the function is loaded before stdin is read:
+  q solution.q -q <<< "show FUNC[arg1;arg2]; exit 0"
+where FUNC is the function name from solution.q. Do not chain commands
+after `\\\\l` on the same line — the system command consumes the rest of the
+line and the rest of your statements become part of the file path.
 If output is wrong, fix and re-test.
 
 ## 4. Iterate
@@ -99,21 +101,24 @@ class ClaudeCodeBackend(AgentBackend):
         env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
 
         events_path = workspace / "events.jsonl"
+        stderr_path = workspace / "events.stderr.log"
         events_fh = open(events_path, "wb") if self.save_events else None
+        stderr_fh = open(stderr_path, "wb") if self.save_events else None
 
         start_time = time.monotonic()
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=events_fh if events_fh else asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stderr=stderr_fh if stderr_fh else asyncio.subprocess.PIPE,
                 cwd=str(workspace),
                 env=env,
             )
 
             if events_fh:
-                # stdout streams directly to events.jsonl so partial output
-                # survives a timeout cancel.
+                # stdout AND stderr stream directly to files so the OS pipe
+                # buffer cannot fill (which would deadlock claude on stderr
+                # writes), and partial output survives a timeout cancel.
                 try:
                     await asyncio.wait_for(
                         process.wait(), timeout=self.timeout
@@ -122,15 +127,17 @@ class ClaudeCodeBackend(AgentBackend):
                     process.kill()
                     await process.wait()
                     raise
-                stderr_bytes = (
-                    await process.stderr.read() if process.stderr else b""
-                )
                 events_fh.close()
                 events_fh = None
+                stderr_fh.close()
+                stderr_fh = None
                 stdout = (
                     events_path.read_text(errors="replace")
                     if events_path.exists()
                     else ""
+                )
+                stderr_bytes = (
+                    stderr_path.read_bytes() if stderr_path.exists() else b""
                 )
             else:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -187,6 +194,8 @@ class ClaudeCodeBackend(AgentBackend):
         finally:
             if events_fh and not events_fh.closed:
                 events_fh.close()
+            if stderr_fh and not stderr_fh.closed:
+                stderr_fh.close()
 
     def _parse_output(self, stdout: str) -> Dict[str, Any]:
         """Parse Claude Code JSON output for telemetry."""
