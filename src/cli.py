@@ -1042,7 +1042,12 @@ def main() -> None:
         "--max-turns",
         type=int,
         default=DEFAULT_AGENT_MAX_TURNS,
-        help=f"Maximum agent iterations (default: {DEFAULT_AGENT_MAX_TURNS})",
+        help=(
+            f"Soft cap on agent iterations — neither the Claude Code nor "
+            f"Codex CLI enforces a turn cap, so this is a warning threshold "
+            f"only. --timeout is the enforced backstop. "
+            f"(default: {DEFAULT_AGENT_MAX_TURNS})"
+        ),
     )
     agent_parser.add_argument(
         "--agent-instructions",

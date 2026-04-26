@@ -70,6 +70,10 @@ class ClaudeCodeBackend(AgentBackend):
         """Invoke claude CLI in headless mode."""
         task_id_str = workspace.name
 
+        # Note: Claude Code CLI 2.1+ does not expose a --max-turns flag
+        # (silently accepted but ignored). The per-task --timeout is the
+        # only enforced backstop. We still track self.max_turns and log
+        # loudly when a task exceeds it — see the post-run check below.
         cmd = [
             "claude",
             "-p",
@@ -78,8 +82,6 @@ class ClaudeCodeBackend(AgentBackend):
             self.model,
             "--output-format",
             "stream-json" if self.save_events else "json",
-            "--max-turns",
-            str(self.max_turns),
             "--dangerously-skip-permissions",
             "--no-session-persistence",
         ]
@@ -160,6 +162,18 @@ class ClaudeCodeBackend(AgentBackend):
             else:
                 metadata = self._parse_output(stdout)
             task_id = int(str(task_id_str).split("_")[-1])
+
+            # Loud warning when a task burns through more turns than we
+            # asked for — the CLI doesn't enforce the cap, so we surface
+            # it here for visibility.
+            actual_turns = metadata.get("num_turns")
+            if actual_turns is not None and actual_turns > self.max_turns:
+                logger.warning(
+                    f"Claude Code task {task_id_str} used {actual_turns} "
+                    f"turns, exceeding the configured cap of "
+                    f"{self.max_turns}. The CLI does not enforce the "
+                    f"cap; only --timeout ({self.timeout}s) limits runaway."
+                )
 
             return AgentResult(
                 task_id=task_id,

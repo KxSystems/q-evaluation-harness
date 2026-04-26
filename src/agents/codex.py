@@ -187,6 +187,18 @@ class CodexBackend(AgentBackend):
             metadata = self._parse_output(stdout, workspace)
             task_id = int(str(task_id_str).split("_")[-1])
 
+            # Loud warning when a task burns through more turns than we
+            # asked for — the codex CLI does not have a turn-cap flag,
+            # so we surface this here for visibility.
+            actual_turns = metadata.get("num_turns")
+            if actual_turns is not None and actual_turns > self.max_turns:
+                logger.warning(
+                    f"Codex task {task_id_str} used {actual_turns} turns, "
+                    f"exceeding the configured cap of {self.max_turns}. "
+                    f"The CLI does not enforce the cap; only --timeout "
+                    f"({self.timeout}s) limits runaway."
+                )
+
             return AgentResult(
                 task_id=task_id,
                 success=process.returncode == 0,
@@ -243,10 +255,21 @@ class CodexBackend(AgentBackend):
             except (json.JSONDecodeError, TypeError):
                 logger.debug("Failed to parse result.json")
 
-        # Parse JSONL events from stdout for turn count and token usage
+        # Parse JSONL events from stdout for turn count and token usage.
+        # Modern codex emits per-step events as `item.completed` with an
+        # `item.type` of `command_execution`, `agent_message`, or
+        # `file_change`. Each represents one discrete agent action and
+        # counts as a turn. Older schemas used flat `tool_call` /
+        # `function_call` / `action` events, which we still match for
+        # backwards compatibility.
         num_turns = 0
         total_input_tokens = 0
         total_output_tokens = 0
+        modern_action_item_types = {
+            "command_execution",
+            "agent_message",
+            "file_change",
+        }
         for line in stdout.strip().split("\n"):
             line = line.strip()
             if not line:
@@ -254,11 +277,17 @@ class CodexBackend(AgentBackend):
             try:
                 event = json.loads(line)
                 event_type = event.get("type", "")
-                if event_type in (
+                if event_type == "item.completed":
+                    item = event.get("item", {})
+                    if (
+                        isinstance(item, dict)
+                        and item.get("type") in modern_action_item_types
+                    ):
+                        num_turns += 1
+                elif event_type in (
                     "tool_call",
                     "function_call",
                     "action",
-                    "turn.completed",
                 ):
                     num_turns += 1
                 if event_type == "turn.completed":
