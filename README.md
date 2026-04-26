@@ -170,8 +170,10 @@ For Q evaluations, point `--skill-dirs` at any skill directory whose `SKILL.md` 
 
 | Rank | Model | Backend | Pass@1 |
 |------|-------|---------|--------|
-| 🥇 | GPT-5.3 | Codex | **83.54%** |
-| 🥈 | Claude Opus 4.6 | Claude Code | **81.71%** |
+| 🥇 | Claude Opus 4.7 | Claude Code | **85.4%** |
+| 🥇 | GPT-5.5 | Codex | **85.4%** |
+| 🥉 | GPT-5.3 | Codex | 83.54% |
+| 4 | Claude Opus 4.6 | Claude Code | 81.71% |
 
 > Agent mode results are not directly comparable to the standard leaderboard — agents get a single attempt but can iterate with tool use, while standard evaluation generates 50 independent samples per problem.
 
