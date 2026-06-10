@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Overnight rotating benchmark (Fable 5 / Opus 4.8 / Codex 5.5).
+  Install:
+    cp scripts/com.qeval.overnight.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.qeval.overnight.plist
+  Run once now to test:
+    launchctl start com.qeval.overnight
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.qeval.overnight.plist
+  Fires nightly at 01:00. If the Mac is asleep at 01:00, launchd runs it on wake.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.qeval.overnight</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/scotwork/Documents/coding/github-repos/q-evaluation-harness/scripts/overnight_eval.sh</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>1</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/scotwork/Documents/coding/github-repos/q-evaluation-harness/outputs/overnight/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/scotwork/Documents/coding/github-repos/q-evaluation-harness/outputs/overnight/launchd.err.log</string>
+</dict>
+</plist>

@@ -40,6 +40,7 @@ from .constants import (
     DEFAULT_AGENT_TIMEOUT,
     DEFAULT_AGENT_MAX_TURNS,
     DEFAULT_AGENT_CONCURRENCY,
+    EXECUTION_ERRORED_PREFIX,
 )
 
 # Module-level logger
@@ -167,21 +168,26 @@ def _calculate_and_save_metrics(
         task_id = result.get("task_id", "unknown")
         task_results[task_id].append(result)
     
-    # Prepare data for pass@k calculation
+    # Prepare data for pass@k calculation. Errored samples (q startup/license
+    # infra failures) are not wrong answers, so drop them from num_samples
+    # rather than counting them against the model.
     pass_at_k_data = []
     for task_id, task_solutions in task_results.items():
-        num_samples = len(task_solutions)
-        num_correct = sum(1 for r in task_solutions if r.get("passed", False))
+        scored = [r for r in task_solutions if not r.get("errored", False)]
+        num_samples = len(scored)
+        num_correct = sum(1 for r in scored if r.get("passed", False))
         pass_at_k_data.append({
             "task_id": task_id,
             "num_samples": num_samples,
             "num_correct": num_correct
         })
-    
-    # Calculate pass@k metrics
+
+    # Calculate pass@k metrics. Exclude errored solutions from the denominator.
     total = len(results)
+    errored = sum(1 for r in results if r.get("errored", False))
+    scored_total = total - errored
     passed = sum(1 for r in results if bool(r.get("passed", False)))
-    pass_rate = passed / total if total > 0 else 0
+    pass_rate = passed / scored_total if scored_total > 0 else 0
     
     # Calculate pass@k for multiple k values
     k_values = [1, 5, 10, 20, 50, 100]
@@ -205,6 +211,8 @@ def _calculate_and_save_metrics(
     summary = {
         "total_solutions": total,
         "passed_solutions": passed,
+        "errored_solutions": errored,
+        "scored_solutions": scored_total,
         "pass_rate": pass_rate,
         "total_problems": len(pass_at_k_data),
         "execution_method": execution_method,
@@ -317,8 +325,11 @@ def _execute_single_solution(
             "sample_index": sample_index,
             "passed": passed,
             "info": info,
+            # Infra error (q startup/license) — not a wrong answer; excluded
+            # from pass/fail downstream.
+            "errored": info.startswith(EXECUTION_ERRORED_PREFIX),
         }
-        
+
         logger.debug(f"  Result: {'PASS' if passed else 'FAIL'}")
         return result
         
