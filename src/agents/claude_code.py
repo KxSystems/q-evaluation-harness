@@ -12,17 +12,20 @@ from .base import AgentBackend, AgentResult
 
 logger = logging.getLogger(__name__)
 
-CLAUDE_CODE_DEFAULT_INSTRUCTIONS = """\
-# Workflow
-
-You are solving a Q/kdb+ task. Always verify your solution before finishing.
-
+CLAUDE_CODE_SKILL_STEP = """\
 ## 0. Load the q-kdb skill
 Read .claude/skills/q-kdb/SKILL.md before writing any code. It contains
 syntax rules, common errors, and idioms you will need. This step is
 mandatory for every task.
 
-## 1. Write solution
+"""
+
+CLAUDE_CODE_DEFAULT_INSTRUCTIONS = """\
+# Workflow
+
+You are solving a Q/kdb+ task. Always verify your solution before finishing.
+
+{skill_step}## 1. Write solution
 Read problem.md. Write your Q function in solution.q.
 
 ## 2. Check for parse errors
@@ -60,7 +63,12 @@ class ClaudeCodeBackend(AgentBackend):
         return "CLAUDE.md"
 
     def get_default_instructions(self) -> str:
-        return CLAUDE_CODE_DEFAULT_INSTRUCTIONS
+        # Only instruct the agent to load the q-kdb skill when one is actually
+        # installed in the workspace. For a no-skill baseline run (no
+        # --skill-dirs), step 0 vanishes so we don't tell the agent to read a
+        # file that won't exist.
+        skill_step = CLAUDE_CODE_SKILL_STEP if self.skill_dirs else ""
+        return CLAUDE_CODE_DEFAULT_INSTRUCTIONS.format(skill_step=skill_step)
 
     async def invoke(
         self,
@@ -89,6 +97,20 @@ class ClaudeCodeBackend(AgentBackend):
         # stream-json requires the CLI's --verbose flag to emit per-event records
         if self.save_events:
             cmd.append("--verbose")
+
+        # Clean-room baseline: block ALL skills and plugins from reaching the
+        # agent. --disable-slash-commands disables every skill (personal
+        # ~/.claude/skills, plugin skills, and workspace .claude/skills);
+        # --setting-sources project,local drops user settings where
+        # enabledPlugins live. The stream-json init event then reports
+        # skills:[] plugins:[] slash_commands:[] and no Skill tool, which is the
+        # verification signal. Auth (keychain/subscription) is unaffected.
+        if self.no_skills:
+            cmd += [
+                "--disable-slash-commands",
+                "--setting-sources",
+                "project,local",
+            ]
 
         # Note: agent instructions are written as CLAUDE.md in the workspace
         # by prepare_workspace(). Claude Code auto-reads CLAUDE.md from its

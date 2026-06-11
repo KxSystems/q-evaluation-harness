@@ -901,6 +901,7 @@ def agent_run_command(args: argparse.Namespace) -> None:
             extra_args=args.extra_args,
             skill_dirs=args.skill_dirs,
             save_events=args.save_events,
+            no_skills=args.no_skills,
             **backend_kwargs,
         )
 
@@ -1105,6 +1106,15 @@ def main() -> None:
         nargs="*",
         default=None,
         help="Paths to skill directories to install in agent workspaces",
+    )
+    agent_parser.add_argument(
+        "--no-skills",
+        action="store_true",
+        help=(
+            "Clean-room baseline: install NO skills (ignores --skill-dirs) and, "
+            "for the claude-code backend, block all global skills/plugins at the "
+            "CLI so the agent gets zero q/kdb help"
+        ),
     )
     agent_parser.add_argument(
         "--extra-args",

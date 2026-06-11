@@ -11,18 +11,21 @@ from .base import AgentBackend, AgentResult
 
 logger = logging.getLogger(__name__)
 
+CODEX_SKILL_STEP = """\
+## 0. Load the q-kdb skill
+Read .agents/skills/q-kdb/SKILL.md before writing any code. It contains
+syntax rules, common errors, and idioms you will need. This step is
+mandatory for every task.
+
+"""
+
 CODEX_DEFAULT_INSTRUCTIONS = """\
 # Workflow
 
 You are solving a Q/kdb+ task. You MUST follow this exact workflow. Do NOT
 skip verification.
 
-## 0. Load the q-kdb skill
-Read .agents/skills/q-kdb/SKILL.md before writing any code. It contains
-syntax rules, common errors, and idioms you will need. This step is
-mandatory for every task.
-
-## 1. Write solution
+{skill_step}## 1. Write solution
 Read problem.md. Write your Q function in solution.q.
 
 ## 2. Check for parse errors
@@ -61,6 +64,7 @@ class CodexBackend(AgentBackend):
         extra_args: Optional[List[str]] = None,
         skill_dirs: Optional[List[str]] = None,
         save_events: bool = False,
+        no_skills: bool = False,
     ) -> None:
         super().__init__(
             model=model,
@@ -70,6 +74,7 @@ class CodexBackend(AgentBackend):
             extra_args=extra_args,
             skill_dirs=skill_dirs,
             save_events=save_events,
+            no_skills=no_skills,
         )
         self.reasoning_effort = reasoning_effort
 
@@ -82,7 +87,10 @@ class CodexBackend(AgentBackend):
         return "AGENTS.md"
 
     def get_default_instructions(self) -> str:
-        return CODEX_DEFAULT_INSTRUCTIONS
+        # Step 0 (load the q-kdb skill) only applies when a skill is installed
+        # in the workspace; omit it for no-skill baseline runs.
+        skill_step = CODEX_SKILL_STEP if self.skill_dirs else ""
+        return CODEX_DEFAULT_INSTRUCTIONS.format(skill_step=skill_step)
 
     async def invoke(
         self,

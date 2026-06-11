@@ -45,13 +45,19 @@ class AgentBackend(ABC):
         extra_args: Optional[List[str]] = None,
         skill_dirs: Optional[List[str]] = None,
         save_events: bool = False,
+        no_skills: bool = False,
     ) -> None:
         self.model = model
         self.max_turns = max_turns
         self.agent_instructions = agent_instructions
         self.timeout = timeout
         self.extra_args = extra_args or []
-        self.skill_dirs = skill_dirs or []
+        # no_skills forces a clean-room baseline: ignore any --skill-dirs so no
+        # skill is installed in the workspace, get_default_instructions drops
+        # the "load the q-kdb skill" step, and (for Claude Code) global skills
+        # and plugins are blocked at the CLI. See the backend's invoke().
+        self.no_skills = no_skills
+        self.skill_dirs = [] if no_skills else (skill_dirs or [])
         self.save_events = save_events
 
     @property
