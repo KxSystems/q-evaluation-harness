@@ -236,6 +236,9 @@ $RECYCLE.BIN/
 .nfs*
 
 # Project-specific ignores
+# Agent workspace artifacts (large, ephemeral)
+outputs/**/workspaces/
+
 # Evaluation results and outputs
 human_eval/*_results.csv
 human_eval/fine-tunned/
