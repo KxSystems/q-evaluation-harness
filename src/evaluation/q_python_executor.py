@@ -49,7 +49,11 @@ from ..constants import (
     EXECUTION_PASSED,
     EXECUTION_TIMED_OUT,
     EXECUTION_FAILED_PREFIX,
+    EXECUTION_ERRORED_PREFIX,
     MAX_RETRIES,
+    Q_STARTUP_MAX_RETRIES,
+    Q_STARTUP_BACKOFF_SECONDS,
+    Q_INFRA_ERROR_MARKERS,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,6 +77,14 @@ class QPythonExecutor(BaseTestExecutor):
     def supported_languages(self) -> Tuple[str, str]:
         """Return supported language combination."""
         return ("q", "python")
+
+    @staticmethod
+    def _is_infra_error(message: str) -> bool:
+        """True if a message is a q startup/license/IPC infrastructure error
+        (which should be retried and, if persistent, reported as `errored`
+        rather than counted as a failing solution)."""
+        m = (message or "").lower()
+        return any(marker in m for marker in Q_INFRA_ERROR_MARKERS)
 
     def _find_available_port(self) -> int:
         """Find an available port for q process."""
@@ -263,9 +275,14 @@ class QPythonExecutor(BaseTestExecutor):
 
             # Create wrapper function that converts strings and makes IPC calls
             def ipc_wrapper(*args: Any, **kwargs: Any) -> Any:
-                # Convert string arguments to bytes (same as embedded version)
-                new_args = tuple(self._to_bytes(arg) for arg in args)
-                new_kwargs = {k: self._to_bytes(v) for k, v in kwargs.items()}
+                # Convert string arguments to q char vectors. A 1-char Python
+                # str otherwise serializes to a q char ATOM (type -10), which
+                # breaks any function doing vector ops (count/where/indexing)
+                # on its string argument — a false-negative that hits every
+                # model. _to_q_arg forces a char VECTOR (type 10) even for
+                # length-1 strings.
+                new_args = tuple(self._to_q_arg(arg) for arg in args)
+                new_kwargs = {k: self._to_q_arg(v) for k, v in kwargs.items()}
 
                 # Call remote function via IPC
                 if new_args and new_kwargs:
@@ -293,7 +310,10 @@ class QPythonExecutor(BaseTestExecutor):
         handling."""
         process = None
         conn = None
-        max_retries = MAX_RETRIES
+        # Startup is retried more aggressively than MAX_RETRIES because a q
+        # process can transiently fail to acquire its license under rapid
+        # spawn/teardown churn; a short backoff lets the slot free up.
+        max_retries = Q_STARTUP_MAX_RETRIES
 
         try:
             # Process the Q code string
@@ -373,8 +393,13 @@ class QPythonExecutor(BaseTestExecutor):
                             f"{max_retries} attempts: {startup_error}"
                         )
 
-                    # Wait before retrying
-                    time.sleep(0.5 * (attempt + 1))  # Exponential backoff
+                    # Wait before retrying. License/startup races clear with a
+                    # longer pause than a plain port conflict, so back off more
+                    # for infra errors.
+                    if self._is_infra_error(str(startup_error)):
+                        time.sleep(Q_STARTUP_BACKOFF_SECONDS * (attempt + 1))
+                    else:
+                        time.sleep(0.5 * (attempt + 1))
                     logger.debug(
                         f"Retrying in {0.5 * (attempt + 1)} seconds..."
                     )
@@ -457,6 +482,13 @@ class QPythonExecutor(BaseTestExecutor):
                 )
                 logger.error(error_msg)
                 return False, f"{EXECUTION_FAILED_PREFIX}{error_msg}"
+            elif self._is_infra_error(str(e)):
+                # q never came up (license/startup race that survived retries).
+                # This is NOT a wrong answer — report it as errored so it's
+                # excluded from pass/fail rather than counted as a failure.
+                error_msg = f"q startup/license error: {str(e)}"
+                logger.warning(error_msg)
+                return False, f"{EXECUTION_ERRORED_PREFIX}{error_msg}"
             elif "port" in str(e).lower():
                 error_msg = f"IPC port error: {str(e)}"
                 logger.debug(error_msg)
@@ -540,6 +572,35 @@ class QPythonExecutor(BaseTestExecutor):
             return False, f"{EXECUTION_FAILED_PREFIX}{e}"
 
         return self._execute_with_ipc(code, tests, setup_code, timeout)
+
+    def _to_q_arg(self, obj: Any) -> Any:
+        """Convert a Python argument to a q value for an IPC call.
+
+        Like _to_bytes, but forces strings to q char VECTORS rather than the
+        raw bytes pykx turns into a char ATOM for length-1 strings. A char
+        atom (type -10) breaks vector operations (count/where/indexing) that
+        q functions routinely apply to string arguments, producing spurious
+        'type errors on single-character test inputs. Containers are walked
+        recursively so nested strings (lists/tuples/dicts) are handled too.
+        """
+        try:
+            if isinstance(obj, str):
+                return kx.CharVector(obj.encode("utf-8"))
+            elif isinstance(obj, list):
+                return [self._to_q_arg(x) for x in obj]
+            elif isinstance(obj, tuple):
+                return tuple(self._to_q_arg(x) for x in obj)
+            elif isinstance(obj, dict):
+                # Build the q dictionary directly: converted keys may be
+                # CharVectors, which are not hashable as Python dict keys,
+                # so we cannot round-trip through a Python dict here.
+                keys = [self._to_q_arg(k) for k in obj.keys()]
+                vals = [self._to_q_arg(v) for v in obj.values()]
+                return kx.q("{x!y}", keys, vals)
+            return obj
+        except (UnicodeEncodeError, AttributeError) as e:
+            logger.warning(f"Failed to convert object {obj} to q arg: {e}")
+            return self._to_bytes(obj)
 
     def _to_bytes(self, obj: Any) -> Any:
         """Convert a string to a byte string."""
@@ -692,6 +753,17 @@ class QPythonExecutor(BaseTestExecutor):
         if obj is None:
             return None
 
+        # pandas <NA> / NaN scalars — these surface as elements when a q list
+        # containing a null is converted with .py(), and are no longer pykx
+        # atoms so the type checks below miss them. Treat as None.
+        try:
+            import pandas as pd
+
+            if obj is pd.NA or (pd.api.types.is_scalar(obj) and pd.isna(obj)):
+                return None
+        except (ImportError, TypeError, ValueError):
+            pass
+
         # Convert pykx types to Python native
         try:
             import pykx as kx
@@ -699,6 +771,16 @@ class QPythonExecutor(BaseTestExecutor):
             # Q null values -> Python None
             if isinstance(obj, (kx.LongAtom, kx.IntAtom, kx.ShortAtom,
                                 kx.FloatAtom, kx.RealAtom)):
+                # Detect q null atoms robustly via q's own `null` (works across
+                # pykx versions and all numeric types — 0N/0n/0Nh/0Ni). pykx
+                # 4.x surfaces an integer null as pandas <NA>, which the
+                # int64.min check below misses, so a function that correctly
+                # returns 0N for "None" would spuriously fail equality.
+                try:
+                    if bool(kx.q("null", obj)):
+                        return None
+                except Exception:
+                    pass
                 py_val = obj.py()
                 # pykx null atoms convert to special values
                 if isinstance(py_val, float) and np.isnan(py_val):
@@ -730,9 +812,29 @@ class QPythonExecutor(BaseTestExecutor):
                     return py_val.tolist()
                 return list(py_val) if py_val is not None else []
 
-            # pykx dictionary -> Python dict
+            # pykx dictionary -> Python dict. Convert keys carefully: a dict
+            # keyed by single chars (e.g. from `group` over a string) has a
+            # CharVector key-list, whose .py() is a bytes blob — iterating it
+            # yields int char codes, so {'a':2} would be read as {97:2} and
+            # never match. Map each char to a 1-char str instead. Char/byte
+            # keys are decoded; list keys are made hashable as tuples.
             if isinstance(obj, kx.Dictionary):
-                return dict(obj.py())
+                keys_q = kx.q("key", obj)
+                vals = self._to_python_native(kx.q("value", obj))
+                if isinstance(keys_q, kx.CharVector):
+                    keys = [chr(c) for c in keys_q.py()]
+                else:
+                    keys = self._to_python_native(keys_q)
+                    if not isinstance(keys, list):
+                        keys = list(keys)
+                    keys = [
+                        k.decode() if isinstance(k, (bytes, bytearray))
+                        else tuple(k) if isinstance(k, list) else k
+                        for k in keys
+                    ]
+                if not isinstance(vals, list):
+                    vals = list(vals) if vals is not None else []
+                return dict(zip(keys, vals))
 
         except (ImportError, AttributeError, TypeError, ValueError):
             pass

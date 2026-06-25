@@ -13,7 +13,7 @@ from tqdm import tqdm
 from .base import AgentBackend, AgentResult
 from ..evaluation.metrics import calculate_pass_at_k
 from ..utils.io import append_to_jsonl, save_json
-from ..constants import DEFAULT_TIMEOUT
+from ..constants import DEFAULT_TIMEOUT, EXECUTION_ERRORED_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +241,8 @@ async def run_agent_evaluation(
                     "sample_index": 0,
                     "passed": passed,
                     "info": info,
+                    # Infra error (q startup/license) — not a wrong answer.
+                    "errored": info.startswith(EXECUTION_ERRORED_PREFIX),
                     "agent_wall_time": agent_result.wall_time_seconds,
                     "agent_num_turns": agent_result.num_turns,
                     "agent_cost_usd": agent_result.cost_usd,
@@ -308,23 +310,31 @@ def _calculate_agent_metrics(
 ) -> Dict[str, Any]:
     """Calculate standard + agent-specific metrics."""
     total = len(execution_results)
+    # Errored solutions (q startup/license infra failures) are not wrong
+    # answers — exclude them from pass/fail rather than counting them against
+    # the model.
+    errored = sum(1 for r in execution_results if r.get("errored", False))
+    scored_total = total - errored
     passed = sum(1 for r in execution_results if r.get("passed", False))
-    pass_rate = passed / total if total > 0 else 0.0
+    pass_rate = passed / scored_total if scored_total > 0 else 0.0
 
-    # Standard pass@k (with n=1 per problem, pass@1 equals pass_rate)
+    # Standard pass@k (with n=1 per problem, pass@1 equals pass_rate). Errored
+    # tasks contribute 0 samples so they don't drag the rate down.
     per_problem_results = []
     for result in execution_results:
+        num_samples = 0 if result.get("errored", False) else 1
         per_problem_results.append(
             {
                 "task_id": result["task_id"],
-                "num_samples": 1,
+                "num_samples": num_samples,
                 "num_correct": 1 if result.get("passed", False) else 0,
             }
         )
 
+    scored_problems = [p for p in per_problem_results if p["num_samples"] > 0]
     pass_at_1 = (
-        calculate_pass_at_k(per_problem_results, 1)
-        if per_problem_results
+        calculate_pass_at_k(scored_problems, 1)
+        if scored_problems
         else 0.0
     )
 
@@ -360,6 +370,8 @@ def _calculate_agent_metrics(
         # Standard metrics (compatible with existing format)
         "total_solutions": total,
         "passed_solutions": passed,
+        "errored_solutions": errored,
+        "scored_solutions": scored_total,
         "pass_rate": pass_rate,
         "total_problems": total,
         "pass_at_1": pass_at_1,
@@ -390,6 +402,8 @@ def _calculate_agent_metrics(
                 for r in agent_results
                 if r.error and "Timed out" in r.error
             ),
+            # q startup/license infra errors — excluded from pass/fail above.
+            "errored_count": errored,
         },
     }
 
@@ -400,6 +414,7 @@ def _log_summary(summary: Dict[str, Any]) -> None:
     """Log a human-readable summary of agent evaluation results."""
     total = summary.get("total_solutions", 0)
     passed = summary.get("passed_solutions", 0)
+    scored = summary.get("scored_solutions", total)
     pass_rate = summary.get("pass_rate", 0)
     backend = summary.get("agent_backend", "unknown")
     model = summary.get("agent_model", "unknown")
@@ -407,7 +422,7 @@ def _log_summary(summary: Dict[str, Any]) -> None:
         f"\n{'=' * 60}\n"
         f"Agent Evaluation Results: {backend} / {model}\n"
         f"{'=' * 60}\n"
-        f"Pass@1: {pass_rate:.1%} ({passed}/{total})"
+        f"Pass@1: {pass_rate:.1%} ({passed}/{scored})"
     )
 
     metrics = summary.get("agent_metrics", {})
@@ -429,6 +444,11 @@ def _log_summary(summary: Dict[str, Any]) -> None:
         )
     if metrics.get("timeout_count", 0) > 0:
         logger.info(f"Timeouts: {metrics['timeout_count']}")
+    if metrics.get("errored_count", 0) > 0:
+        logger.info(
+            f"Errored (q startup/license, excluded from pass/fail): "
+            f"{metrics['errored_count']}"
+        )
 
 
 def _safe_mean(values: List[float]) -> Optional[float]:
