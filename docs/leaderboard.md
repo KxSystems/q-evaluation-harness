@@ -69,6 +69,18 @@ The following table shows model performance on the Q-HumanEval dataset, ranked b
 
 ---
 
+## 📊 Statistics
+
+- **Agent leaderboard (new grader):** 6 models, 8 runs
+- **One-shot leaderboard (new grader):** 1 model (Claude Opus 4.8); GPT-5.5 run pending
+- **Historical one-shot (pre-#7 grader):** 12 models
+  - 🧠 Reasoning: 6 · 🔒 Proprietary: 1 · 🔓 Open Source: 5
+
+### 🏆 Best Scores
+- **Highest agent Pass@1 (new grader):** GPT-5.5 94.5% (skill ✓) — Fable 5 95.1% (reference)
+- **Highest one-shot Pass@1 (new grader):** Claude Opus 4.8 53.2% (Pass@10 80.7%)
+- **Highest historical Pass@1 (pre-#7 grader):** qqWen 45.10% — best Pass@5/Pass@10: Grok (68.45% / 74.32%)
+
 ## 🔬 Methodology
 
 ### Grader versions
@@ -82,6 +94,18 @@ The following table shows model performance on the Q-HumanEval dataset, ranked b
 ### Evaluation Metrics
 - **Pass@k:** the percentage of problems solved when generating k samples per problem.
 - **Pass@1:** single-attempt success rate (most restrictive). For agent mode this is the single task attempt.
+
+### Model Categories
+- 🧠 **Reasoning Models:** Advanced models with enhanced reasoning capabilities
+- 🔒 **Proprietary Models:** Closed-source commercial models
+- 🔓 **Open Source Models:** Publicly available models
+
+### Evaluation Process
+All models are evaluated using the same standardized process:
+1. Solutions generated per the mode (one-shot: 50 samples per problem; agent: a single iterative attempt per problem)
+2. Consistent prompting and evaluation criteria
+3. Automated scoring using the Q evaluation harness
+4. Results verified for accuracy and reproducibility
 
 ### Cost capture
 - **Agent / Claude Code:** API-equivalent cost is recorded per run (subscription-covered in practice, so ~$0 cash).
