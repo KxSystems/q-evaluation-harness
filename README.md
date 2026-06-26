@@ -11,16 +11,24 @@ Our evaluation harness provides a robust and rigorous framework, beginning with 
 
 ## Model Leaderboard
 
-Track the performance of Large Language Models on Q/kdb+ code generation tasks using our standardized evaluation framework.
+Track the performance of Large Language Models on Q/kdb+ code generation tasks using our standardized evaluation framework. Scored with the current grader ([PR #7](https://github.com/KxSystems/q-evaluation-harness/pull/7)).
 
-| Rank | Model | Pass@1 | Pass@5 | Pass@10 |
-|------|-------|--------|--------|---------|
-| 🥇 | qqWen | **45.10%** | 59.24% | 62.63% |
-| 🥈 | Grok 4 | 43.37% | 68.45% | 74.32% |
-| 🥉 | Claude 4 Sonnet | 37.70% | 53.47% | 59.13% | 
+**Agent mode** — one task attempt with iterative tool use (top results, q-kdb skill ✓):
+
+| Rank | Model | Backend | Pass@1 |
+|------|-------|---------|--------|
+| 🥇 | Fable 5 \* | Claude Code | **95.1%** |
+| 🥈 | GPT-5.5 | Codex | **94.5%** |
+| 🥉 | Claude Opus 4.8 | Claude Code | 88.4% |
+
+**One-shot mode** — 50 independent samples, no tool use:
+
+| Model | Pass@1 | Pass@5 | Pass@10 |
+|-------|--------|--------|---------|
+| Claude Opus 4.8 | 53.2% | 74.4% | 80.7% |
 
 > 📈 **[View Complete Leaderboard →](https://github.com/KxSystems/q-evaluation-harness/blob/main/docs/leaderboard.md)**  
-> *See full results, historical data, and detailed analysis*
+> *Full agent skill A/B, one-shot, and historical (pre-#7 grader) results, with methodology.*
 
 ---
 
@@ -168,14 +176,22 @@ For Q evaluations, point `--skill-dirs` at any skill directory whose `SKILL.md` 
 
 ### Agent Leaderboard
 
-| Rank | Model | Backend | Pass@1 |
-|------|-------|---------|--------|
-| 🥇 | Claude Opus 4.7 | Claude Code | **85.4%** |
-| 🥇 | GPT-5.5 | Codex | **85.4%** |
-| 🥉 | GPT-5.3 | Codex | 83.54% |
-| 4 | Claude Opus 4.6 | Claude Code | 81.71% |
+Scored with the current grader ([PR #7](https://github.com/KxSystems/q-evaluation-harness/pull/7)). The **Skill** column marks whether the q-kdb skill was installed (✓ via `--skill-dirs`) or the clean-room `--no-skills` baseline (✗).
 
-> Agent mode results are not directly comparable to the standard leaderboard — agents get a single attempt but can iterate with tool use, while standard evaluation generates 50 independent samples per problem.
+| Rank | Model | Backend | Skill | Pass@1 | Cost/run | Mean turns |
+|------|-------|---------|:-----:|--------|----------|-----------|
+| 🥇 | Fable 5 \* | Claude Code | ✓ | **95.1%** (156/164) | — | — |
+| 🥈 | GPT-5.5 | Codex | ✓ | **94.5%** (155/164) | — † | 18.8 |
+| 🥉 | Claude Opus 4.8 | Claude Code | ✓ | 88.4% (145/164) | $52.40 | 8.7 |
+| 4 | GPT-5.5 | Codex | ✗ | 88.4% (145/164) | — † | 20.3 |
+| 5 | Claude Opus 4.8 | Claude Code | ✗ | 87.2% (143/164) | $24.86 | 5.8 |
+| 5 | Claude Opus 4.7 \* | Claude Code | ✓ | 87.2% (143/164) | — | — |
+| 7 | Claude Sonnet 4.6 \* | Claude Code | ✓ | 70.1% (115/164) | — | — |
+| 8 | Claude Haiku 4.5 \* | Claude Code | ✓ | 37.2% (61/164) | — | — |
+
+\* Reference rows — prior overnight runs re-graded with the new grader (different machine, ~600s timeout with cap-resume → cost/turns omitted; pre-date `--no-skills`, so reported as skill ✓). † Codex cost is not captured by the CLI. See the [full leaderboard](docs/leaderboard.md) for caveats and the GPT-5.5 cross-check.
+
+> Agent mode results are not directly comparable to the one-shot leaderboard — agents get a single task attempt but can iterate with tool use, while one-shot evaluation generates 50 independent samples per problem.
 
 ### How Agent Evaluation Works
 
