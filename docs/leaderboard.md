@@ -12,18 +12,22 @@ Agent mode gives the model a Q interpreter and lets it iteratively write, run, a
 
 | Rank | Model | Backend | Skill | Pass@1 | Cost/run | Mean turns |
 |------|-------|---------|:-----:|--------|----------|-----------|
-| 🥇 | **Fable 5** \* | Claude Code | ✓ | **95.1%** (156/164) | — | — |
-| 🥈 | **GPT-5.5** | Codex | ✓ | **94.5%** (155/164) | — † | 18.8 |
-| 🥉 | **Claude Opus 4.8** | Claude Code | ✓ | 88.4% (145/164) | $52.40 | 8.7 |
-| 4 | **GPT-5.5** | Codex | ✗ | 88.4% (145/164) | — † | 20.3 |
-| 5 | **Claude Opus 4.8** | Claude Code | ✗ | 87.2% (143/164) | $24.86 | 5.8 |
-| 5 | **Claude Opus 4.7** \* | Claude Code | ✓ | 87.2% (143/164) | — | — |
-| 7 | **Claude Sonnet 4.6** \* | Claude Code | ✓ | 70.1% (115/164) | — | — |
-| 8 | **Claude Haiku 4.5** \* | Claude Code | ✓ | 37.2% (61/164) | — | — |
+| 🥇 | **Claude Opus 5** ‡ | Claude Code | ✗ | **97.6%** (160/164) | $39.70 | 7.6 |
+| 🥈 | **Claude Opus 5** ‡ | Claude Code | ✓ | **95.7%** (157/164) | $61.19 | 9.3 |
+| 🥉 | **Fable 5** \* | Claude Code | ✓ | 95.1% (156/164) | — | — |
+| 4 | **GPT-5.5** | Codex | ✓ | 94.5% (155/164) | — † | 18.8 |
+| 5 | **Claude Opus 4.8** | Claude Code | ✓ | 88.4% (145/164) | $52.40 | 8.7 |
+| 5 | **GPT-5.5** | Codex | ✗ | 88.4% (145/164) | — † | 20.3 |
+| 7 | **Claude Opus 4.8** | Claude Code | ✗ | 87.2% (143/164) | $24.86 | 5.8 |
+| 7 | **Claude Opus 4.7** \* | Claude Code | ✓ | 87.2% (143/164) | — | — |
+| 9 | **Claude Sonnet 4.6** \* | Claude Code | ✓ | 70.1% (115/164) | — | — |
+| 10 | **Claude Haiku 4.5** \* | Claude Code | ✓ | 37.2% (61/164) | — | — |
 
-**Skill column** (`--skill-dirs` q-kdb skill, ✓ = installed, ✗ = clean-room `--no-skills`): the skill helps **GPT-5.5 by +6.1 pts** and **Opus 4.8 by +1.2 pts** (a near-ceiling model). All arms had zero infrastructure errors.
+**Skill column** (`--skill-dirs` q-kdb skill, ✓ = installed, ✗ = clean-room `--no-skills`): the skill helps **GPT-5.5 by +6.1 pts** and **Opus 4.8 by +1.2 pts** (a near-ceiling model), but **costs Opus 5 1.9 pts** while running **1.54x more expensive** ($61.19 vs $39.70). On Opus 5 the skill never rescued a task the clean room missed (0 skilled-only wins vs 3 clean-room-only); at n=164 that gap is not statistically significant (exact McNemar p = 0.25), so read it as *no demonstrated benefit* rather than active harm. Final results for all arms carry zero infrastructure errors and zero missing solutions (for Opus 5 this is after the re-runs described in ‡).
 
 \* **Reference rows** — prior overnight runs re-graded with the new grader, included for breadth. Caveats: run on a different machine, mostly `--timeout 600` with 5-hour-cap resume (so wall-time/cost are unreliable and omitted), and three dataset prompts changed after these runs (≤2 pt effect). These pre-date the `--no-skills` flag, so they used the default skill workflow and are reported as skill ✓.
+
+‡ **Opus 5 rows required manual re-runs.** A harness issue silently terminated some agent processes mid-task, and those tasks were initially scored as model failures; the affected tasks were re-run to completion and every task in both arms is verified attempted. Run at `--timeout 600`. Details in [OPUS-5-NOTES.md](OPUS-5-NOTES.md).
 
 † Codex (GPT-5.5) cost is **not captured** by the CLI — tokens are recorded but dollar cost is not surfaced. Claude Code reports the API-equivalent cost (subscription-covered, so ~$0 cash in practice).
 
@@ -71,13 +75,13 @@ The following table shows model performance on the Q-HumanEval dataset, ranked b
 
 ## 📊 Statistics
 
-- **Agent leaderboard (new grader):** 6 models, 8 runs
+- **Agent leaderboard (new grader):** 7 models, 10 runs
 - **One-shot leaderboard (new grader):** 1 model (Claude Opus 4.8); GPT-5.5 run pending
 - **Historical one-shot (pre-#7 grader):** 12 models
   - 🧠 Reasoning: 6 · 🔒 Proprietary: 1 · 🔓 Open Source: 5
 
 ### 🏆 Best Scores
-- **Highest agent Pass@1 (new grader):** GPT-5.5 94.5% (skill ✓) — Fable 5 95.1% (reference)
+- **Highest agent Pass@1 (new grader):** Claude Opus 5 97.6% (skill ✗, clean room) — 95.7% with the skill
 - **Highest one-shot Pass@1 (new grader):** Claude Opus 4.8 53.2% (Pass@10 80.7%)
 - **Highest historical Pass@1 (pre-#7 grader):** qqWen 45.10% — best Pass@5/Pass@10: Grok (68.45% / 74.32%)
 
