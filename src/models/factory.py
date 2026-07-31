@@ -1,12 +1,10 @@
 """Model factory for creating model instances."""
 
 import os
-import torch
 from typing import Any
 from .base import BaseModel
 from .litellm_model import LiteLLMModel
-from .huggingface_model import HuggingFaceModel
-from .vllm_model import VLLMModel
+from .optional_dependencies import raise_optional_dependency_error
 
 
 def create_model(model_name: str, model_type: str = "auto", **kwargs: Any) -> BaseModel:
@@ -29,10 +27,20 @@ def create_model(model_name: str, model_type: str = "auto", **kwargs: Any) -> Ba
         model_type = _detect_model_type(model_name)
 
     if model_type == "huggingface":
+        try:
+            from .huggingface_model import HuggingFaceModel
+        except ModuleNotFoundError as error:
+            raise_optional_dependency_error("HuggingFace", error)
+
         return HuggingFaceModel(model_name, **kwargs)
     elif model_type == "litellm":
         return LiteLLMModel(model_name, **kwargs)
     elif model_type == "vllm":
+        try:
+            from .vllm_model import VLLMModel
+        except ModuleNotFoundError as error:
+            raise_optional_dependency_error("vLLM", error)
+
         return VLLMModel(model_name, **kwargs)
     elif model_type == "mcp":
         from .mcp_model import MCPModel
@@ -156,6 +164,13 @@ def _should_use_vllm(model_name: str) -> bool:
         True if vLLM is recommended, False otherwise
     """
     # Check if we have multiple GPUs (vLLM's strength)
+    try:
+        import torch
+    except ModuleNotFoundError as error:
+        if error.name != "torch":
+            raise
+        return False
+
     num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     if num_gpus < 2:
         return False

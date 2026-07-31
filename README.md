@@ -50,8 +50,12 @@ Track the performance of Large Language Models on Q/kdb+ code generation tasks u
 git clone https://github.com/KxSystems/q-evaluation-harness.git
 cd q-evaluation-harness
 
-# Install dependencies with Poetry
+# Install the base package (hosted API and MCP backends)
 poetry install
+
+# Optional: add a local-inference backend
+poetry install -E huggingface
+# or: poetry install -E vllm
 
 # Activate the Poetry environment (Poetry 2.0+)
 eval $(poetry env activate)
@@ -87,13 +91,15 @@ export ANTHROPIC_API_KEY="your-key-here"
 
 ## Quick Start
 
-Verify your installation by running an evaluation on an open-source model. This command should work without any API keys configured.
+Verify your installation by running an evaluation. The Hugging Face example
+requires the optional `huggingface` extra but does not require an API key.
 
 ```bash
 # Make sure you're in the Poetry environment (Poetry 2.0+)
 eval $(poetry env activate)
 
-# Run evaluation on an open-source model from Hugging Face
+# Install and evaluate an open-source model from Hugging Face
+poetry install -E huggingface
 qeval run q-humaneval Qwen/Qwen2-1.5B-Instruct
 ```
 

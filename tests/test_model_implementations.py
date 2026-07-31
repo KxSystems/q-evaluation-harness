@@ -1,7 +1,7 @@
 """Tests for model implementations with new generation strategies."""
 
 import pytest
-import torch
+torch = pytest.importorskip("torch", reason="PyTorch is not installed")
 from unittest.mock import patch, Mock, AsyncMock
 from src.models.generation_strategy import (
     GenerationStrategy, BatchConfig, AsyncConfig

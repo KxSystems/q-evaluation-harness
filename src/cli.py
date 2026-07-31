@@ -30,8 +30,6 @@ from .evaluation.executor import get_executor
 from .evaluation.metrics import calculate_pass_at_k
 from .utils.io import append_to_jsonl, load_jsonl, save_json
 from .utils.extraction import extract_function_from_content
-from .utils.hardware_profiler import HardwareProfiler
-from .utils.benchmarking import ModelBenchmark
 from .constants import (
     DEFAULT_TIMEOUT,
     DEFAULT_TEMPERATURE,
@@ -781,6 +779,14 @@ def profile_command(args: argparse.Namespace) -> None:
     try:
         from pathlib import Path
         import json
+        try:
+            from .utils.hardware_profiler import HardwareProfiler
+        except ModuleNotFoundError as error:
+            from .models.optional_dependencies import (
+                raise_optional_dependency_error,
+            )
+
+            raise_optional_dependency_error("hardware profiling", error)
         
         logger.info(f"Starting hardware profiling for model: {args.model}")
         
@@ -852,6 +858,8 @@ def profile_command(args: argparse.Namespace) -> None:
         if args.benchmark:
             logger.info("Running performance benchmarks...")
             try:
+                from .utils.benchmarking import ModelBenchmark
+
                 if args.quick:
                     model_config = config
                 else:
@@ -892,7 +900,7 @@ def profile_command(args: argparse.Namespace) -> None:
         
     except Exception as e:
         logger.error(f"Hardware profiling failed: {e}")
-        logger.info("Ensure vLLM is installed: pip install vllm")
+        sys.exit(1)
 
 
 def agent_run_command(args: argparse.Namespace) -> None:
