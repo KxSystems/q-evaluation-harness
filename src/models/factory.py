@@ -14,7 +14,8 @@ def create_model(model_name: str, model_type: str = "auto", **kwargs: Any) -> Ba
 
     Args:
         model_name: Model identifier
-        model_type: Type of model ('auto', 'litellm', 'huggingface', 'vllm')
+        model_type: Type of model
+            ('auto', 'litellm', 'huggingface', 'vllm', 'mcp')
         **kwargs: Additional model parameters
 
     Returns:
@@ -33,6 +34,9 @@ def create_model(model_name: str, model_type: str = "auto", **kwargs: Any) -> Ba
         return LiteLLMModel(model_name, **kwargs)
     elif model_type == "vllm":
         return VLLMModel(model_name, **kwargs)
+    elif model_type == "mcp":
+        from .mcp_model import MCPModel
+        return MCPModel(model_name, **kwargs)
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
 

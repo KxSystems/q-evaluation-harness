@@ -13,12 +13,27 @@ from .base import AgentBackend, AgentResult
 logger = logging.getLogger(__name__)
 
 CLAUDE_CODE_SKILL_STEP = """\
-## 0. Load the q-kdb skill
-Read .claude/skills/q-kdb/SKILL.md before writing any code. It contains
+## 0. Load the installed skill{plural}
+Read {skill_paths} before writing any code. {pronoun} contain{verb_s}
 syntax rules, common errors, and idioms you will need. This step is
 mandatory for every task.
 
 """
+
+
+def _build_skill_step(skill_dirs: list) -> str:
+    """Render step 0 pointing at the skills actually installed in the
+    workspace, derived from the --skill-dirs basenames (each lands at
+    .claude/skills/<name>/). Avoids hardcoding a single skill name."""
+    names = [Path(d).name for d in skill_dirs]
+    paths = ", ".join(f".claude/skills/{n}/SKILL.md" for n in names)
+    multi = len(names) > 1
+    plural = "s" if multi else ""
+    pronoun = "They" if multi else "It"
+    verb_s = "" if multi else "s"
+    return CLAUDE_CODE_SKILL_STEP.format(
+        plural=plural, skill_paths=paths, pronoun=pronoun, verb_s=verb_s
+    )
 
 CLAUDE_CODE_DEFAULT_INSTRUCTIONS = """\
 # Workflow
@@ -67,7 +82,7 @@ class ClaudeCodeBackend(AgentBackend):
         # installed in the workspace. For a no-skill baseline run (no
         # --skill-dirs), step 0 vanishes so we don't tell the agent to read a
         # file that won't exist.
-        skill_step = CLAUDE_CODE_SKILL_STEP if self.skill_dirs else ""
+        skill_step = _build_skill_step(self.skill_dirs) if self.skill_dirs else ""
         return CLAUDE_CODE_DEFAULT_INSTRUCTIONS.format(skill_step=skill_step)
 
     async def invoke(
@@ -110,6 +125,17 @@ class ClaudeCodeBackend(AgentBackend):
                 "--disable-slash-commands",
                 "--setting-sources",
                 "project,local",
+            ]
+
+        # Wire an MCP server config when requested. --strict-mcp-config loads
+        # ONLY the servers in this file,
+        # ignoring any user-global MCP config, so runs are reproducible.
+        # --dangerously-skip-permissions (above) auto-approves MCP tool calls.
+        if self.mcp_config:
+            cmd += [
+                "--mcp-config",
+                str(Path(self.mcp_config).resolve()),
+                "--strict-mcp-config",
             ]
 
         # Note: agent instructions are written as CLAUDE.md in the workspace

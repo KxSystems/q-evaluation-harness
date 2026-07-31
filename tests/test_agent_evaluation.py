@@ -17,6 +17,7 @@ from src.agents.base import AgentBackend, AgentResult
 from src.agents.claude_code import ClaudeCodeBackend
 from src.agents.codex import CodexBackend
 from src.agents.factory import create_agent_backend, list_agent_backends
+from src.agents.mcp_config import load_codex_mcp_overrides
 
 
 # --- Factory Tests ---
@@ -299,6 +300,29 @@ class TestClaudeCodeBackend:
         assert "--output-format" in call_args
         assert "--dangerously-skip-permissions" in call_args
 
+    @pytest.mark.asyncio
+    async def test_invoke_adds_strict_mcp_config(
+        self, temp_workspace: Path
+    ) -> None:
+        mcp_config = temp_workspace.parent / "mcp.json"
+        mcp_config.write_text(json.dumps({"mcpServers": {}}))
+        backend = ClaudeCodeBackend(
+            model="opus", mcp_config=str(mcp_config)
+        )
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(return_value=(b"{}", b""))
+        mock_process.returncode = 0
+
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=mock_process
+        ) as mock_exec:
+            await backend.invoke("Write function", temp_workspace)
+
+        call_args = mock_exec.call_args[0]
+        config_index = call_args.index("--mcp-config")
+        assert call_args[config_index + 1] == str(mcp_config.resolve())
+        assert "--strict-mcp-config" in call_args
+
 
 # --- Codex Backend Invoke Tests ---
 
@@ -314,6 +338,36 @@ class TestCodexBackend:
             max_turns=5,
             timeout=30.0,
         )
+
+    def test_translates_mcp_config_for_codex(self, tmp_path: Path) -> None:
+        mcp_config = tmp_path / "mcp.json"
+        mcp_config.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "remote.tools": {
+                            "type": "http",
+                            "url": "https://example.test/mcp",
+                            "headers": {"X-Region": "east"},
+                        },
+                        "local": {
+                            "command": "python",
+                            "args": ["-m", "example_server"],
+                            "env": {"MODE": "test"},
+                        },
+                    }
+                }
+            )
+        )
+
+        overrides = load_codex_mcp_overrides(str(mcp_config))
+
+        assert 'mcp_servers."remote.tools".url="https://example.test/mcp"' in overrides
+        assert 'mcp_servers."remote.tools".http_headers.X-Region="east"' in overrides
+        assert 'mcp_servers.local.command="python"' in overrides
+        assert 'mcp_servers.local.args=["-m","example_server"]' in overrides
+        assert 'mcp_servers.local.env.MODE="test"' in overrides
+        assert "mcp_servers.local.required=true" in overrides
 
     @pytest.fixture
     def temp_workspace(self) -> Generator[Path, None, None]:
@@ -372,6 +426,45 @@ class TestCodexBackend:
         assert "--model" in call_args
         assert "gpt-5.3-codex" in call_args
         assert "--full-auto" in call_args
+
+    @pytest.mark.asyncio
+    async def test_invoke_adds_isolated_mcp_overrides(
+        self, temp_workspace: Path
+    ) -> None:
+        mcp_config = temp_workspace.parent / "mcp.json"
+        mcp_config.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "tools": {
+                            "type": "http",
+                            "url": "https://example.test/mcp",
+                        }
+                    }
+                }
+            )
+        )
+        backend = CodexBackend(model="gpt-5.3-codex", mcp_config=str(mcp_config))
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(return_value=(b"", b""))
+        mock_process.returncode = 0
+
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=mock_process
+        ) as mock_exec:
+            await backend.invoke("Write function", temp_workspace)
+
+        call_args = mock_exec.call_args[0]
+        assert "--ignore-user-config" in call_args
+        assert "--strict-config" in call_args
+        overrides = [
+            call_args[index + 1]
+            for index, value in enumerate(call_args)
+            if value == "-c"
+        ]
+        assert "project_root_markers=[]" in overrides
+        assert 'mcp_servers.tools.url="https://example.test/mcp"' in overrides
+        assert "mcp_servers.tools.required=true" in overrides
 
 
 # --- Agent Metrics Tests ---

@@ -704,6 +704,14 @@ def run_command(args: argparse.Namespace) -> None:
         "temperature": DEFAULT_TEMPERATURE,
         "seed": DEFAULT_SEED,
         "model_type": args.backend,
+        "mcp_url": args.mcp_url,
+        "mcp_tool_name": args.mcp_tool_name,
+        "mcp_prompt_argument": args.mcp_prompt_argument,
+        "mcp_prompt_suffix": args.mcp_prompt_suffix,
+        "mcp_result_field": args.mcp_result_field,
+        "mcp_tool_arguments": args.mcp_tool_arguments,
+        "mcp_headers": args.mcp_headers,
+        "mcp_concurrency": args.mcp_concurrency,
     }
 
     try:
@@ -729,6 +737,14 @@ def generate_command(args: argparse.Namespace) -> None:
         "temperature": DEFAULT_TEMPERATURE,
         "seed": DEFAULT_SEED,
         "model_type": args.backend,
+        "mcp_url": args.mcp_url,
+        "mcp_tool_name": args.mcp_tool_name,
+        "mcp_prompt_argument": args.mcp_prompt_argument,
+        "mcp_prompt_suffix": args.mcp_prompt_suffix,
+        "mcp_result_field": args.mcp_result_field,
+        "mcp_tool_arguments": args.mcp_tool_arguments,
+        "mcp_headers": args.mcp_headers,
+        "mcp_concurrency": args.mcp_concurrency,
     }
 
     try:
@@ -900,6 +916,7 @@ def agent_run_command(args: argparse.Namespace) -> None:
             timeout=args.timeout,
             extra_args=args.extra_args,
             skill_dirs=args.skill_dirs,
+            mcp_config=args.mcp_config,
             save_events=args.save_events,
             no_skills=args.no_skills,
             **backend_kwargs,
@@ -956,6 +973,67 @@ def list_command(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _json_object(value: str) -> Dict[str, Any]:
+    """Parse a CLI JSON object with an argparse-friendly error."""
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise argparse.ArgumentTypeError(f"invalid JSON: {exc.msg}") from exc
+    if not isinstance(parsed, dict):
+        raise argparse.ArgumentTypeError("value must be a JSON object")
+    return parsed
+
+
+def _add_mcp_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add MCP model-backend options shared by run and generate."""
+    group = parser.add_argument_group("MCP model backend")
+    group.add_argument(
+        "--mcp-url",
+        help="Streamable HTTP MCP endpoint (required by --backend mcp)",
+    )
+    group.add_argument(
+        "--mcp-tool-name",
+        help="MCP generation tool name (required by --backend mcp)",
+    )
+    group.add_argument(
+        "--mcp-prompt-argument",
+        default="prompt",
+        help="Tool argument that receives the benchmark prompt (default: prompt)",
+    )
+    group.add_argument(
+        "--mcp-prompt-suffix",
+        default="",
+        help="Text appended to every benchmark prompt before the MCP call",
+    )
+    group.add_argument(
+        "--mcp-result-field",
+        help=(
+            "Dot-separated string field containing generated code; omit when "
+            "the tool returns code as plain text"
+        ),
+    )
+    group.add_argument(
+        "--mcp-tool-arguments",
+        type=_json_object,
+        default={},
+        metavar="JSON",
+        help="Static JSON object merged into every MCP tool call",
+    )
+    group.add_argument(
+        "--mcp-headers",
+        type=_json_object,
+        default={},
+        metavar="JSON",
+        help="JSON object of HTTP headers sent to the MCP endpoint",
+    )
+    group.add_argument(
+        "--mcp-concurrency",
+        type=int,
+        default=3,
+        help="Maximum concurrent MCP requests (default: 3)",
+    )
+
+
 def main() -> None:
     """Main CLI entry point."""
     # Load environment variables from .env file
@@ -987,8 +1065,13 @@ def main() -> None:
     run_parser.add_argument("--output-dir", "-o", default="./outputs")
     run_parser.add_argument("--max-workers", type=int, default=None,
                             help="Max workers for execution (default: auto)")
-    run_parser.add_argument("--backend", choices=["auto", "litellm", "huggingface", "vllm"], 
-                            default="auto", help="Model backend (default: auto-detect)")
+    run_parser.add_argument(
+        "--backend",
+        choices=["auto", "litellm", "huggingface", "vllm", "mcp"],
+        default="auto",
+        help="Model backend (default: auto-detect)",
+    )
+    _add_mcp_arguments(run_parser)
     run_parser.set_defaults(func=run_command)
 
     # 'generate' subcommand
@@ -999,8 +1082,13 @@ def main() -> None:
     gen_parser.add_argument("model", help="Model name")
     gen_parser.add_argument("--num-samples", "-n", type=int, default=1)
     gen_parser.add_argument("--output", "-o", help="Output JSONL file")
-    gen_parser.add_argument("--backend", choices=["auto", "litellm", "huggingface", "vllm"], 
-                            default="auto", help="Model backend (default: auto-detect)")
+    gen_parser.add_argument(
+        "--backend",
+        choices=["auto", "litellm", "huggingface", "vllm", "mcp"],
+        default="auto",
+        help="Model backend (default: auto-detect)",
+    )
+    _add_mcp_arguments(gen_parser)
     gen_parser.set_defaults(func=generate_command)
 
     # 'execute' subcommand
@@ -1106,6 +1194,15 @@ def main() -> None:
         nargs="*",
         default=None,
         help="Paths to skill directories to install in agent workspaces",
+    )
+    agent_parser.add_argument(
+        "--mcp-config",
+        type=str,
+        default=None,
+        help=(
+            "Path to an MCP config JSON (mcpServers block) to expose to the "
+            "agent. User-global MCP servers are excluded for reproducibility."
+        ),
     )
     agent_parser.add_argument(
         "--no-skills",
