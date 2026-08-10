@@ -13,13 +13,13 @@ Our evaluation harness provides a robust and rigorous framework, beginning with 
 
 Track the performance of Large Language Models on Q/kdb+ code generation tasks using our standardized evaluation framework. Scored with the current grader ([PR #7](https://github.com/KxSystems/q-evaluation-harness/pull/7)).
 
-**Agent mode** — one task attempt with iterative tool use (top results, q-kdb skill ✓):
+**Agent mode** — one task attempt with iterative tool use (top results; q-kdb skill ✓ installed, ✗ clean room):
 
-| Rank | Model | Backend | Pass@1 |
-|------|-------|---------|--------|
-| 🥇 | Fable 5 \* | Claude Code | **95.1%** |
-| 🥈 | GPT-5.5 | Codex | **94.5%** |
-| 🥉 | Claude Opus 4.8 | Claude Code | 88.4% |
+| Rank | Model | Backend | Skill | Pass@1 |
+|------|-------|---------|:-----:|--------|
+| 🥇 | Claude Opus 5 | Claude Code | ✗ | **97.6%** |
+| 🥈 | Claude Opus 5 | Claude Code | ✓ | **95.7%** |
+| 🥉 | Fable 5 \* | Claude Code | ✓ | 95.1% |
 
 **One-shot mode** — 50 independent samples, no tool use:
 
@@ -180,16 +180,20 @@ Scored with the current grader ([PR #7](https://github.com/KxSystems/q-evaluatio
 
 | Rank | Model | Backend | Skill | Pass@1 | Cost/run | Mean turns |
 |------|-------|---------|:-----:|--------|----------|-----------|
-| 🥇 | Fable 5 \* | Claude Code | ✓ | **95.1%** (156/164) | — | — |
-| 🥈 | GPT-5.5 | Codex | ✓ | **94.5%** (155/164) | — † | 18.8 |
-| 🥉 | Claude Opus 4.8 | Claude Code | ✓ | 88.4% (145/164) | $52.40 | 8.7 |
-| 4 | GPT-5.5 | Codex | ✗ | 88.4% (145/164) | — † | 20.3 |
-| 5 | Claude Opus 4.8 | Claude Code | ✗ | 87.2% (143/164) | $24.86 | 5.8 |
-| 5 | Claude Opus 4.7 \* | Claude Code | ✓ | 87.2% (143/164) | — | — |
-| 7 | Claude Sonnet 4.6 \* | Claude Code | ✓ | 70.1% (115/164) | — | — |
-| 8 | Claude Haiku 4.5 \* | Claude Code | ✓ | 37.2% (61/164) | — | — |
+| 🥇 | Claude Opus 5 ‡ | Claude Code | ✗ | **97.6%** (160/164) | $39.70 | 7.6 |
+| 🥈 | Claude Opus 5 ‡ | Claude Code | ✓ | **95.7%** (157/164) | $61.19 | 9.3 |
+| 🥉 | Fable 5 \* | Claude Code | ✓ | 95.1% (156/164) | — | — |
+| 4 | GPT-5.5 | Codex | ✓ | 94.5% (155/164) | — † | 18.8 |
+| 5 | Claude Opus 4.8 | Claude Code | ✓ | 88.4% (145/164) | $52.40 | 8.7 |
+| 5 | GPT-5.5 | Codex | ✗ | 88.4% (145/164) | — † | 20.3 |
+| 7 | Claude Opus 4.8 | Claude Code | ✗ | 87.2% (143/164) | $24.86 | 5.8 |
+| 7 | Claude Opus 4.7 \* | Claude Code | ✓ | 87.2% (143/164) | — | — |
+| 9 | Claude Sonnet 4.6 \* | Claude Code | ✓ | 70.1% (115/164) | — | — |
+| 10 | Claude Haiku 4.5 \* | Claude Code | ✓ | 37.2% (61/164) | — | — |
 
-\* Reference rows — prior overnight runs re-graded with the new grader (different machine, ~600s timeout with cap-resume → cost/turns omitted; pre-date `--no-skills`, so reported as skill ✓). † Codex cost is not captured by the CLI. See the [full leaderboard](docs/leaderboard.md) for caveats and the GPT-5.5 cross-check.
+Opus 5 is the first model where the skill **costs** accuracy (−1.9 pts) while running 1.54x more expensive — though at n=164 the gap is not statistically significant, so read it as no demonstrated benefit rather than active harm.
+
+\* Reference rows — prior overnight runs re-graded with the new grader (different machine, ~600s timeout with cap-resume → cost/turns omitted; pre-date `--no-skills`, so reported as skill ✓). † Codex cost is not captured by the CLI. ‡ Opus 5 rows required manual re-runs after a harness issue silently terminated some agent processes mid-task; affected tasks were re-run and every task in both arms is verified attempted — see [OPUS-5-NOTES.md](docs/OPUS-5-NOTES.md). See the [full leaderboard](docs/leaderboard.md) for caveats and the GPT-5.5 cross-check.
 
 > Agent mode results are not directly comparable to the one-shot leaderboard — agents get a single task attempt but can iterate with tool use, while one-shot evaluation generates 50 independent samples per problem.
 
