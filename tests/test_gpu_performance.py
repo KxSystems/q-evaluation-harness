@@ -1,7 +1,7 @@
 """Minimal GPU performance tests for model comparison."""
 
 import pytest
-import torch
+torch = pytest.importorskip("torch", reason="PyTorch is not installed")
 import time
 from src.models.huggingface_model import HuggingFaceModel
 from src.models.vllm_model import VLLMModel

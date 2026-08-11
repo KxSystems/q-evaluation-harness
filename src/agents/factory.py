@@ -21,6 +21,7 @@ def create_agent_backend(
     timeout: float = 300.0,
     extra_args: Optional[List[str]] = None,
     skill_dirs: Optional[List[str]] = None,
+    mcp_config: Optional[str] = None,
     save_events: bool = False,
     no_skills: bool = False,
     **kwargs: Any,
@@ -35,6 +36,7 @@ def create_agent_backend(
         timeout: Per-problem timeout in seconds.
         extra_args: Additional CLI arguments.
         skill_dirs: Paths to skill directories to install in workspaces.
+        mcp_config: Path to an MCP config JSON exposed to the agent.
         **kwargs: Backend-specific arguments (e.g., reasoning_effort for codex).
 
     Returns:
@@ -58,6 +60,7 @@ def create_agent_backend(
         timeout=timeout,
         extra_args=extra_args,
         skill_dirs=skill_dirs,
+        mcp_config=mcp_config,
         save_events=save_events,
         no_skills=no_skills,
         **kwargs,

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .base import AgentBackend, AgentResult
+from .mcp_config import load_codex_mcp_overrides
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ class CodexBackend(AgentBackend):
         timeout: float = 300.0,
         extra_args: Optional[List[str]] = None,
         skill_dirs: Optional[List[str]] = None,
+        mcp_config: Optional[str] = None,
         save_events: bool = False,
         no_skills: bool = False,
     ) -> None:
@@ -73,10 +75,14 @@ class CodexBackend(AgentBackend):
             timeout=timeout,
             extra_args=extra_args,
             skill_dirs=skill_dirs,
+            mcp_config=mcp_config,
             save_events=save_events,
             no_skills=no_skills,
         )
         self.reasoning_effort = reasoning_effort
+        self._mcp_overrides = (
+            load_codex_mcp_overrides(mcp_config) if mcp_config else []
+        )
 
     @property
     def name(self) -> str:
@@ -119,6 +125,14 @@ class CodexBackend(AgentBackend):
         ]
 
         cmd.extend(self.extra_args)
+
+        if self._mcp_overrides:
+            # Keep agent benchmarks isolated from user-global and parent-repo
+            # MCP servers. Authentication still comes from CODEX_HOME.
+            cmd += ["--ignore-user-config", "--strict-config"]
+            cmd += ["-c", "project_root_markers=[]"]
+            for override in self._mcp_overrides:
+                cmd += ["-c", override]
 
         # Pass prompt via stdin (using "-") rather than as a positional
         # argument — avoids issues with multi-line text and special chars.

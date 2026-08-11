@@ -3,7 +3,7 @@
 import os
 import pytest
 import asyncio
-import torch
+torch = pytest.importorskip("torch", reason="PyTorch is not installed")
 from unittest.mock import patch
 from src.models.huggingface_model import HuggingFaceModel
 from src.models.generation_strategy import GenerationStrategy

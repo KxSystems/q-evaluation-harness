@@ -44,6 +44,7 @@ class AgentBackend(ABC):
         timeout: float = 300.0,
         extra_args: Optional[List[str]] = None,
         skill_dirs: Optional[List[str]] = None,
+        mcp_config: Optional[str] = None,
         save_events: bool = False,
         no_skills: bool = False,
     ) -> None:
@@ -52,6 +53,10 @@ class AgentBackend(ABC):
         self.agent_instructions = agent_instructions
         self.timeout = timeout
         self.extra_args = extra_args or []
+        # Path to an MCP config JSON exposed to the agent. Backends translate
+        # this shared representation to their CLI's native configuration.
+        # None means no MCP servers are wired in.
+        self.mcp_config = mcp_config
         # no_skills forces a clean-room baseline: ignore any --skill-dirs so no
         # skill is installed in the workspace, get_default_instructions drops
         # the "load the q-kdb skill" step, and (for Claude Code) global skills

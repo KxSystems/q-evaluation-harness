@@ -1,8 +1,12 @@
 
 
 import pytest
-import torch
 from unittest.mock import Mock
+
+try:
+    import torch
+except ImportError:
+    torch = None
 
 # Common prompt lists
 BASIC_PROMPTS = ["def func1():", "def func2():"]
@@ -11,6 +15,8 @@ LARGE_PROMPTS = ["def function():"] * 50
 
 @pytest.fixture
 def mock_tokenizer():
+    if torch is None:
+        pytest.skip("PyTorch is not installed")
     tokenizer = Mock()
     tokenizer.pad_token = None
     tokenizer.eos_token = "<eos>"
@@ -40,6 +46,8 @@ def mock_tokenizer():
 
 @pytest.fixture
 def mock_model():
+    if torch is None:
+        pytest.skip("PyTorch is not installed")
     model = Mock()
     model.generate = Mock()
 
@@ -61,6 +69,8 @@ def mock_model():
 
 @pytest.fixture(scope="class")
 def small_model():
+    if torch is None:
+        pytest.skip("PyTorch is not installed")
     from src.models.huggingface_model import HuggingFaceModel
     try:
         model = HuggingFaceModel("gpt2", max_tokens=50)
@@ -71,6 +81,8 @@ def small_model():
 
 @pytest.fixture(scope="class")
 def gpu_model():
+    if torch is None:
+        pytest.skip("PyTorch is not installed")
     from src.models.huggingface_model import HuggingFaceModel
     if not torch.cuda.is_available():
         pytest.skip("GPU not available")
@@ -83,6 +95,8 @@ def gpu_model():
 
 @pytest.fixture(scope="class")
 def small_vllm_model():
+    if torch is None:
+        pytest.skip("PyTorch is not installed")
     from src.models.vllm_model import VLLMModel
     if not torch.cuda.is_available():
         pytest.skip("VLLM requires GPU")
@@ -95,6 +109,8 @@ def small_vllm_model():
 
 @pytest.fixture(scope="class")
 def gpu_vllm_model():
+    if torch is None:
+        pytest.skip("PyTorch is not installed")
     from src.models.vllm_model import VLLMModel
     if not torch.cuda.is_available():
         pytest.skip("GPU not available")
@@ -103,4 +119,3 @@ def gpu_vllm_model():
         yield model
     except Exception:
         pytest.skip("GPU VLLM model loading failed")
-

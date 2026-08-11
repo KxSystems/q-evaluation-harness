@@ -5,7 +5,7 @@ to validate high-end hardware optimization capabilities.
 """
 
 import pytest
-import torch
+torch = pytest.importorskip("torch", reason="PyTorch is not installed")
 from unittest.mock import Mock, patch
 from src.models.huggingface_model import HuggingFaceModel
 from src.models.generation_strategy import BatchConfig

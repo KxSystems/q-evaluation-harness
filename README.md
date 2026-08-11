@@ -37,7 +37,7 @@ Track the performance of Large Language Models on Q/kdb+ code generation tasks u
 - 🚀 **Simple CLI**: One-command evaluation with `qeval run <dataset> <model>`.
 - 🤖 **Agent Evaluation**: Evaluate coding agents (Claude Code, Codex) that iteratively write and test Q code.
 - 📊 **Q-HumanEval Dataset**: 164 hand-crafted Q programming problems.
-- 🔧 **Multi-Model Support**: Supports both closed-source APIs and open-source Hugging Face models.
+- 🔧 **Multi-Model Support**: Supports hosted APIs, MCP tools, Hugging Face, and vLLM.
 - 📈 **Standard Metrics**: Pass@1, Pass@5, Pass@10 with isolated execution.
 - ⏱️ **Timeout Protection**: Code execution with configurable timeout limits.
 
@@ -50,8 +50,12 @@ Track the performance of Large Language Models on Q/kdb+ code generation tasks u
 git clone https://github.com/KxSystems/q-evaluation-harness.git
 cd q-evaluation-harness
 
-# Install dependencies with Poetry
+# Install the base package (hosted API and MCP backends)
 poetry install
+
+# Optional: add a local-inference backend
+poetry install -E huggingface
+# or: poetry install -E vllm
 
 # Activate the Poetry environment (Poetry 2.0+)
 eval $(poetry env activate)
@@ -87,13 +91,15 @@ export ANTHROPIC_API_KEY="your-key-here"
 
 ## Quick Start
 
-Verify your installation by running an evaluation on an open-source model. This command should work without any API keys configured.
+Verify your installation by running an evaluation. The Hugging Face example
+requires the optional `huggingface` extra but does not require an API key.
 
 ```bash
 # Make sure you're in the Poetry environment (Poetry 2.0+)
 eval $(poetry env activate)
 
-# Run evaluation on an open-source model from Hugging Face
+# Install and evaluate an open-source model from Hugging Face
+poetry install -E huggingface
 qeval run q-humaneval Qwen/Qwen2-1.5B-Instruct
 ```
 
@@ -110,11 +116,45 @@ qeval run q-humaneval gpt-4.1
 # Evaluate an open-source model
 qeval run q-humaneval google/gemma-3-4b-it
 
+# Evaluate a code generator exposed as an MCP tool
+qeval run q-humaneval my-mcp-model --backend mcp --num-samples 1 \
+  --mcp-url https://models.example.com/mcp \
+  --mcp-tool-name generate_code
+
 # Specify custom sample size (50 samples recommended for leaderboard submissions)
 qeval run q-humaneval your-model --num-samples 50
 ```
 
 > 📊 **Evaluation Standard**: Use 50 samples per problem for statistically significant results and leaderboard submissions.
+
+### MCP Model Backend
+
+MCP does not standardize a code-generation tool schema. The MCP backend
+therefore requires an endpoint and tool name, and lets you map the benchmark
+prompt and tool result to that server's contract. The positional model name is
+a label recorded in the output; the MCP server selects the deployed model.
+
+For a tool that accepts `instruction` plus static generation options and
+returns JSON such as `{"result":{"code":"..."}}`:
+
+```bash
+qeval run q-humaneval my-mcp-model --backend mcp \
+  --mcp-url https://models.example.com/mcp \
+  --mcp-tool-name generate_code \
+  --mcp-prompt-argument instruction \
+  --mcp-prompt-suffix $'\n\nReturn only generated code.' \
+  --mcp-result-field result.code \
+  --mcp-tool-arguments '{"temperature":0.8}' \
+  --mcp-concurrency 3
+```
+
+Omit `--mcp-result-field` when the tool returns generated code directly as a
+text content block. `--mcp-tool-arguments` supplies a JSON object merged into
+every call; it cannot contain the configured prompt argument. Authenticated
+servers can receive string-valued HTTP headers through `--mcp-headers`.
+`--mcp-prompt-suffix` makes any closing instruction explicit and reproducible;
+its default is empty so the backend does not impose a language or server
+contract.
 
 ---
 
@@ -142,6 +182,10 @@ qeval agent-run q-humaneval --backend codex --model gpt-5.5
 # Install a skill (e.g. q-kdb) into agent workspaces — strongly recommended
 qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-7 \
   --skill-dirs path/to/claude-skills/skills/q-kdb
+
+# Expose configured MCP tools to an agent
+qeval agent-run q-humaneval --backend codex --model gpt-5.5 \
+  --mcp-config path/to/mcp.json
 
 # Capture the agent's full event stream for auditing skill activation,
 # tool calls, and reasoning. Saved as <workspace>/events.jsonl.
@@ -173,6 +217,18 @@ The `--skill-dirs` option installs [Agent Skills](https://agentskills.io) into e
 > **Note:** In headless / non-interactive contexts, agents do not reliably auto-load skills based on description matching alone. The harness's built-in workflow instructions (`CLAUDE.md` / `AGENTS.md`) explicitly tell the agent to read `q-kdb/SKILL.md` before writing any Q code. If you install skills under a different name, update the instructions accordingly with `--agent-instructions`.
 
 For Q evaluations, point `--skill-dirs` at any skill directory whose `SKILL.md` covers q syntax, common errors, shell-running idioms, and Python→Q translations. The [qdex](https://github.com/kx/qdex) plugin previously bundled similar guidance under `/qdex:code`.
+
+### Agent MCP Tools
+
+`agent-run --mcp-config` is separate from the MCP model backend above. It
+exposes the servers in an MCP configuration file to a Claude Code or Codex
+agent while that agent remains the primary model. For Claude, the harness uses
+`--mcp-config --strict-mcp-config`. For Codex, it translates the same
+`mcpServers` JSON into one-run `mcp_servers.*` configuration overrides and
+uses `--ignore-user-config --strict-config`. Both paths prevent user-global
+MCP servers from changing the benchmark environment; Codex also stops project
+config discovery at the generated task workspace so parent-repository servers
+cannot leak into the run.
 
 ### Agent Leaderboard
 
