@@ -49,7 +49,11 @@ from ..constants import (
     EXECUTION_PASSED,
     EXECUTION_TIMED_OUT,
     EXECUTION_FAILED_PREFIX,
+    EXECUTION_ERRORED_PREFIX,
     MAX_RETRIES,
+    Q_STARTUP_MAX_RETRIES,
+    Q_STARTUP_BACKOFF_SECONDS,
+    Q_INFRA_ERROR_MARKERS,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,6 +77,14 @@ class QPythonExecutor(BaseTestExecutor):
     def supported_languages(self) -> Tuple[str, str]:
         """Return supported language combination."""
         return ("q", "python")
+
+    @staticmethod
+    def _is_infra_error(message: str) -> bool:
+        """True if a message is a q startup/license/IPC infrastructure error
+        (which should be retried and, if persistent, reported as `errored`
+        rather than counted as a failing solution)."""
+        m = (message or "").lower()
+        return any(marker in m for marker in Q_INFRA_ERROR_MARKERS)
 
     def _find_available_port(self) -> int:
         """Find an available port for q process."""
@@ -263,9 +275,14 @@ class QPythonExecutor(BaseTestExecutor):
 
             # Create wrapper function that converts strings and makes IPC calls
             def ipc_wrapper(*args: Any, **kwargs: Any) -> Any:
-                # Convert string arguments to bytes (same as embedded version)
-                new_args = tuple(self._to_bytes(arg) for arg in args)
-                new_kwargs = {k: self._to_bytes(v) for k, v in kwargs.items()}
+                # Convert string arguments to q char vectors. A 1-char Python
+                # str otherwise serializes to a q char ATOM (type -10), which
+                # breaks any function doing vector ops (count/where/indexing)
+                # on its string argument — a false-negative that hits every
+                # model. _to_q_arg forces a char VECTOR (type 10) even for
+                # length-1 strings.
+                new_args = tuple(self._to_q_arg(arg) for arg in args)
+                new_kwargs = {k: self._to_q_arg(v) for k, v in kwargs.items()}
 
                 # Call remote function via IPC
                 if new_args and new_kwargs:
@@ -293,7 +310,10 @@ class QPythonExecutor(BaseTestExecutor):
         handling."""
         process = None
         conn = None
-        max_retries = MAX_RETRIES
+        # Startup is retried more aggressively than MAX_RETRIES because a q
+        # process can transiently fail to acquire its license under rapid
+        # spawn/teardown churn; a short backoff lets the slot free up.
+        max_retries = Q_STARTUP_MAX_RETRIES
 
         try:
             # Process the Q code string
@@ -373,8 +393,13 @@ class QPythonExecutor(BaseTestExecutor):
                             f"{max_retries} attempts: {startup_error}"
                         )
 
-                    # Wait before retrying
-                    time.sleep(0.5 * (attempt + 1))  # Exponential backoff
+                    # Wait before retrying. License/startup races clear with a
+                    # longer pause than a plain port conflict, so back off more
+                    # for infra errors.
+                    if self._is_infra_error(str(startup_error)):
+                        time.sleep(Q_STARTUP_BACKOFF_SECONDS * (attempt + 1))
+                    else:
+                        time.sleep(0.5 * (attempt + 1))
                     logger.debug(
                         f"Retrying in {0.5 * (attempt + 1)} seconds..."
                     )
@@ -457,6 +482,13 @@ class QPythonExecutor(BaseTestExecutor):
                 )
                 logger.error(error_msg)
                 return False, f"{EXECUTION_FAILED_PREFIX}{error_msg}"
+            elif self._is_infra_error(str(e)):
+                # q never came up (license/startup race that survived retries).
+                # This is NOT a wrong answer — report it as errored so it's
+                # excluded from pass/fail rather than counted as a failure.
+                error_msg = f"q startup/license error: {str(e)}"
+                logger.warning(error_msg)
+                return False, f"{EXECUTION_ERRORED_PREFIX}{error_msg}"
             elif "port" in str(e).lower():
                 error_msg = f"IPC port error: {str(e)}"
                 logger.debug(error_msg)
@@ -541,6 +573,35 @@ class QPythonExecutor(BaseTestExecutor):
 
         return self._execute_with_ipc(code, tests, setup_code, timeout)
 
+    def _to_q_arg(self, obj: Any) -> Any:
+        """Convert a Python argument to a q value for an IPC call.
+
+        Like _to_bytes, but forces strings to q char VECTORS rather than the
+        raw bytes pykx turns into a char ATOM for length-1 strings. A char
+        atom (type -10) breaks vector operations (count/where/indexing) that
+        q functions routinely apply to string arguments, producing spurious
+        'type errors on single-character test inputs. Containers are walked
+        recursively so nested strings (lists/tuples/dicts) are handled too.
+        """
+        try:
+            if isinstance(obj, str):
+                return kx.CharVector(obj.encode("utf-8"))
+            elif isinstance(obj, list):
+                return [self._to_q_arg(x) for x in obj]
+            elif isinstance(obj, tuple):
+                return tuple(self._to_q_arg(x) for x in obj)
+            elif isinstance(obj, dict):
+                # Build the q dictionary directly: converted keys may be
+                # CharVectors, which are not hashable as Python dict keys,
+                # so we cannot round-trip through a Python dict here.
+                keys = [self._to_q_arg(k) for k in obj.keys()]
+                vals = [self._to_q_arg(v) for v in obj.values()]
+                return kx.q("{x!y}", keys, vals)
+            return obj
+        except (UnicodeEncodeError, AttributeError) as e:
+            logger.warning(f"Failed to convert object {obj} to q arg: {e}")
+            return self._to_bytes(obj)
+
     def _to_bytes(self, obj: Any) -> Any:
         """Convert a string to a byte string."""
         try:
@@ -589,38 +650,73 @@ class QPythonExecutor(BaseTestExecutor):
         """
         logger.debug("Preprocessing test for smart equality")
 
-        # Only process if we have a check function with == comparisons
-        if "def check(" not in test_str or "==" not in test_str:
+        # Only process if we have a check function with comparisons we handle
+        if "def check(" not in test_str:
             logger.debug("Test preprocessing not needed, returning original")
+            return test_str
+        # Need == or identity comparisons (is True, is False, is None, is not)
+        has_eq = "==" in test_str
+        has_is = " is " in test_str
+        if not has_eq and not has_is:
+            logger.debug("No == or 'is' comparisons found, returning original")
             return test_str
 
         try:
             import ast
 
             class EqualityTransformer(ast.NodeTransformer):
-                """Transform assert x == y statements to
-                assert smart_equal(x, y)."""
+                """Transform assert x == y and assert x is y statements
+                to assert smart_equal(x, y)."""
 
                 def visit_Assert(self, node: ast.Assert) -> ast.AST:
-                    """Visit assert nodes and transform == comparisons."""
-                    # Only transform assert statements (not assert not)
+                    """Visit assert nodes and transform == and is comparisons."""
+                    if not isinstance(node.test, ast.Compare):
+                        return self.generic_visit(node)
+
                     if (
-                        isinstance(node.test, ast.Compare)
-                        and len(node.test.ops) == 1
-                        and isinstance(node.test.ops[0], ast.Eq)
-                        and len(node.test.comparators) == 1
+                        len(node.test.ops) != 1
+                        or len(node.test.comparators) != 1
                     ):
-                        # Create smart_equal(left, right) function call
-                        smart_equal_call = ast.Call(
+                        return self.generic_visit(node)
+
+                    op = node.test.ops[0]
+
+                    # Transform == comparisons
+                    if isinstance(op, ast.Eq):
+                        node.test = ast.Call(
                             func=ast.Name(id="smart_equal", ctx=ast.Load()),
                             args=[node.test.left, node.test.comparators[0]],
                             keywords=[],
                         )
-
-                        # Replace the test with our function call
-                        node.test = smart_equal_call
                         logger.debug(
-                            "Transformed assert statement to use smart_equal"
+                            "Transformed assert == to use smart_equal"
+                        )
+
+                    # Transform `is` comparisons (e.g., `assert x is True`)
+                    # pykx returns numpy.bool_ which fails identity checks
+                    elif isinstance(op, ast.Is):
+                        node.test = ast.Call(
+                            func=ast.Name(id="smart_equal", ctx=ast.Load()),
+                            args=[node.test.left, node.test.comparators[0]],
+                            keywords=[],
+                        )
+                        logger.debug(
+                            "Transformed assert is to use smart_equal"
+                        )
+
+                    # Transform `is not` comparisons
+                    elif isinstance(op, ast.IsNot):
+                        smart_call = ast.Call(
+                            func=ast.Name(id="smart_equal", ctx=ast.Load()),
+                            args=[node.test.left, node.test.comparators[0]],
+                            keywords=[],
+                        )
+                        node.test = ast.UnaryOp(
+                            op=ast.Not(), operand=smart_call
+                        )
+                        logger.debug(
+                            "Transformed assert is not to use "
+                            "not smart_equal"
                         )
 
                     return self.generic_visit(node)
@@ -645,16 +741,151 @@ class QPythonExecutor(BaseTestExecutor):
             logger.debug(f"Failed to parse test code: {e}, returning original")
             return test_str
 
-    def _smart_equal(self, a: Any, b: Any) -> bool:
-        """Robust equality function that handles arrays, lists, and scalars."""
-        logger.debug("Performing smart equality comparison")
-        logger.debug(f"a: {a}, b: {b}")
+    def _to_python_native(self, obj: Any) -> Any:
+        """Convert pykx/numpy types to native Python types for comparison.
 
-        # Convert both to bytes for pykx compatibility
+        Handles: pykx atoms -> Python scalars, numpy types -> Python types,
+        Q null values -> Python None, empty typed vectors -> [].
+        """
+        import numpy as np
+
+        # Handle None/null early
+        if obj is None:
+            return None
+
+        # pandas <NA> / NaN scalars — these surface as elements when a q list
+        # containing a null is converted with .py(), and are no longer pykx
+        # atoms so the type checks below miss them. Treat as None.
+        try:
+            import pandas as pd
+
+            if obj is pd.NA or (pd.api.types.is_scalar(obj) and pd.isna(obj)):
+                return None
+        except (ImportError, TypeError, ValueError):
+            pass
+
+        # Convert pykx types to Python native
+        try:
+            import pykx as kx
+
+            # Q null values -> Python None
+            if isinstance(obj, (kx.LongAtom, kx.IntAtom, kx.ShortAtom,
+                                kx.FloatAtom, kx.RealAtom)):
+                # Detect q null atoms robustly via q's own `null` (works across
+                # pykx versions and all numeric types — 0N/0n/0Nh/0Ni). pykx
+                # 4.x surfaces an integer null as pandas <NA>, which the
+                # int64.min check below misses, so a function that correctly
+                # returns 0N for "None" would spuriously fail equality.
+                try:
+                    if bool(kx.q("null", obj)):
+                        return None
+                except Exception:
+                    pass
+                py_val = obj.py()
+                # pykx null atoms convert to special values
+                if isinstance(py_val, float) and np.isnan(py_val):
+                    return None
+                # numpy int null (e.g., -9223372036854775808 for 0N)
+                if isinstance(py_val, (int, np.integer)):
+                    if py_val == np.iinfo(np.int64).min:
+                        return None
+                    if py_val == np.iinfo(np.int32).min:
+                        return None
+                return py_val
+
+            # pykx boolean -> Python bool
+            if isinstance(obj, kx.BooleanAtom):
+                return bool(obj.py())
+
+            # pykx generic null (::) -> Python None
+            if isinstance(obj, kx.Identity):
+                return None
+
+            # pykx vectors -> Python native types
+            if isinstance(obj, kx.Vector):
+                py_val = obj.py()
+                # Don't decompose strings/bytes — they're already native
+                # (kx.CharVector.py() → bytes, kx.SymbolVector.py() → list)
+                if isinstance(py_val, (bytes, str)):
+                    return py_val
+                if hasattr(py_val, 'tolist'):
+                    return py_val.tolist()
+                return list(py_val) if py_val is not None else []
+
+            # pykx dictionary -> Python dict. Convert keys carefully: a dict
+            # keyed by single chars (e.g. from `group` over a string) has a
+            # CharVector key-list, whose .py() is a bytes blob — iterating it
+            # yields int char codes, so {'a':2} would be read as {97:2} and
+            # never match. Map each char to a 1-char str instead. Char/byte
+            # keys are decoded; list keys are made hashable as tuples.
+            if isinstance(obj, kx.Dictionary):
+                keys_q = kx.q("key", obj)
+                vals = self._to_python_native(kx.q("value", obj))
+                if isinstance(keys_q, kx.CharVector):
+                    keys = [chr(c) for c in keys_q.py()]
+                else:
+                    keys = self._to_python_native(keys_q)
+                    if not isinstance(keys, list):
+                        keys = list(keys)
+                    keys = [
+                        k.decode() if isinstance(k, (bytes, bytearray))
+                        else tuple(k) if isinstance(k, list) else k
+                        for k in keys
+                    ]
+                if not isinstance(vals, list):
+                    vals = list(vals) if vals is not None else []
+                return dict(zip(keys, vals))
+
+        except (ImportError, AttributeError, TypeError, ValueError):
+            pass
+
+        # Handle numpy types
+        if isinstance(obj, np.integer):
+            if obj == np.iinfo(obj.dtype).min:
+                return None
+            return int(obj)
+        if isinstance(obj, np.floating):
+            if np.isnan(obj):
+                return None
+            return float(obj)
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, np.ndarray):
+            if obj.size == 0:
+                return []
+            return obj.tolist()
+
+        return obj
+
+    def _smart_equal(self, a: Any, b: Any) -> bool:
+        """Robust equality function that handles arrays, lists, and scalars.
+
+        Handles Q/pykx type mismatches including:
+        - Empty typed vectors vs Python []
+        - Q null (0N, (::)) vs Python None
+        - pykx numeric atoms vs Python int/float
+        - numpy.bool_ vs Python bool
+        - Byte vectors vs Python strings
+        """
+        logger.debug("Performing smart equality comparison")
+        logger.debug(f"a: {a} (type: {type(a).__name__}), "
+                     f"b: {b} (type: {type(b).__name__})")
+
+        # Phase 0: Normalize pykx/numpy types to Python native
+        a = self._to_python_native(a)
+        b = self._to_python_native(b)
+
+        # Phase 0.5: Handle None comparison (after normalization)
+        if a is None and b is None:
+            return True
+        if a is None or b is None:
+            return False
+
+        # Phase 1: Convert strings to bytes for pykx compatibility
         a = self._to_bytes(a)
         b = self._to_bytes(b)
 
-        # First try direct equality for simple cases
+        # Phase 2: Try direct equality for simple cases
         try:
             result = a == b
 
@@ -681,7 +912,7 @@ class QPythonExecutor(BaseTestExecutor):
                 f"Primary equality comparison failed: {e}, trying fallbacks"
             )
 
-        # Handle mixed iterable types (list vs tuple, etc.)
+        # Phase 3: Handle mixed iterable types (list vs tuple, etc.)
         # But exclude strings and bytes which are also iterable
         if (
             hasattr(a, "__iter__")
@@ -693,6 +924,10 @@ class QPythonExecutor(BaseTestExecutor):
                 # Convert both to lists for comparison
                 list_a = list(a)
                 list_b = list(b)
+
+                # Both empty -> equal (handles typed empty lists)
+                if len(list_a) == 0 and len(list_b) == 0:
+                    return True
 
                 # Check if they have the same length first
                 if len(list_a) != len(list_b):
@@ -708,5 +943,9 @@ class QPythonExecutor(BaseTestExecutor):
             except (TypeError, ValueError, RecursionError):
                 pass
 
-        logger.warning("All equality comparison methods failed")
+        logger.warning(
+            f"All equality comparison methods failed: "
+            f"a={a!r} (type: {type(a).__name__}), "
+            f"b={b!r} (type: {type(b).__name__})"
+        )
         return False

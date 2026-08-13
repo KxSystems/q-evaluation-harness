@@ -37,6 +37,10 @@ from .constants import (
     DEFAULT_TEMPERATURE,
     DEFAULT_SEED,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_AGENT_TIMEOUT,
+    DEFAULT_AGENT_MAX_TURNS,
+    DEFAULT_AGENT_CONCURRENCY,
+    EXECUTION_ERRORED_PREFIX,
 )
 
 # Module-level logger
@@ -164,21 +168,26 @@ def _calculate_and_save_metrics(
         task_id = result.get("task_id", "unknown")
         task_results[task_id].append(result)
     
-    # Prepare data for pass@k calculation
+    # Prepare data for pass@k calculation. Errored samples (q startup/license
+    # infra failures) are not wrong answers, so drop them from num_samples
+    # rather than counting them against the model.
     pass_at_k_data = []
     for task_id, task_solutions in task_results.items():
-        num_samples = len(task_solutions)
-        num_correct = sum(1 for r in task_solutions if r.get("passed", False))
+        scored = [r for r in task_solutions if not r.get("errored", False)]
+        num_samples = len(scored)
+        num_correct = sum(1 for r in scored if r.get("passed", False))
         pass_at_k_data.append({
             "task_id": task_id,
             "num_samples": num_samples,
             "num_correct": num_correct
         })
-    
-    # Calculate pass@k metrics
+
+    # Calculate pass@k metrics. Exclude errored solutions from the denominator.
     total = len(results)
+    errored = sum(1 for r in results if r.get("errored", False))
+    scored_total = total - errored
     passed = sum(1 for r in results if bool(r.get("passed", False)))
-    pass_rate = passed / total if total > 0 else 0
+    pass_rate = passed / scored_total if scored_total > 0 else 0
     
     # Calculate pass@k for multiple k values
     k_values = [1, 5, 10, 20, 50, 100]
@@ -202,6 +211,8 @@ def _calculate_and_save_metrics(
     summary = {
         "total_solutions": total,
         "passed_solutions": passed,
+        "errored_solutions": errored,
+        "scored_solutions": scored_total,
         "pass_rate": pass_rate,
         "total_problems": len(pass_at_k_data),
         "execution_method": execution_method,
@@ -314,8 +325,11 @@ def _execute_single_solution(
             "sample_index": sample_index,
             "passed": passed,
             "info": info,
+            # Infra error (q startup/license) — not a wrong answer; excluded
+            # from pass/fail downstream.
+            "errored": info.startswith(EXECUTION_ERRORED_PREFIX),
         }
-        
+
         logger.debug(f"  Result: {'PASS' if passed else 'FAIL'}")
         return result
         
@@ -865,6 +879,59 @@ def profile_command(args: argparse.Namespace) -> None:
         logger.info("Ensure vLLM is installed: pip install vllm")
 
 
+def agent_run_command(args: argparse.Namespace) -> None:
+    """Handle the 'agent-run' subcommand."""
+    setup_logging(args.verbose)
+
+    from .agents.factory import create_agent_backend
+    from .agents.runner import run_agent_evaluation
+
+    # Build backend kwargs
+    backend_kwargs: Dict[str, Any] = {}
+    if args.backend == "codex" and args.reasoning_effort:
+        backend_kwargs["reasoning_effort"] = args.reasoning_effort
+
+    try:
+        backend = create_agent_backend(
+            backend_name=args.backend,
+            model=args.model,
+            max_turns=args.max_turns,
+            agent_instructions=args.agent_instructions,
+            timeout=args.timeout,
+            extra_args=args.extra_args,
+            skill_dirs=args.skill_dirs,
+            save_events=args.save_events,
+            no_skills=args.no_skills,
+            **backend_kwargs,
+        )
+
+        results = asyncio.run(
+            run_agent_evaluation(
+                dataset=args.dataset,
+                backend=backend,
+                output_dir=args.output_dir,
+                concurrency=args.concurrency,
+                keep_workspaces=args.keep_workspaces,
+                problem_ids=args.problem_ids,
+            )
+        )
+
+        # Print headline result
+        pass_rate = results.get("pass_rate", 0)
+        total = results.get("total_solutions", 0)
+        passed = results.get("passed_solutions", 0)
+        logger.info(
+            f"Agent evaluation complete: "
+            f"{passed}/{total} passed ({pass_rate:.1%})"
+        )
+
+    except Exception as e:
+        logger.error(f"Agent evaluation failed: {e}")
+        if args.verbose >= 2:
+            logger.error(traceback.format_exc())
+        sys.exit(1)
+
+
 def list_command(args: argparse.Namespace) -> None:
     """Handle the 'list' subcommand."""
     setup_logging(args.verbose)
@@ -967,6 +1034,105 @@ def main() -> None:
         help="Run performance benchmarks after profiling"
     )
     profile_parser.set_defaults(func=profile_command)
+
+    # 'agent-run' subcommand
+    agent_parser = subparsers.add_parser(
+        "agent-run",
+        help="Evaluate coding agents (Claude Code, Codex) on Q problems",
+    )
+    agent_parser.add_argument("dataset", help="Dataset name")
+    agent_parser.add_argument(
+        "--backend",
+        required=True,
+        choices=["claude-code", "codex"],
+        help="Agent backend to use",
+    )
+    agent_parser.add_argument(
+        "--model", required=True, help="Model name passed to the agent CLI"
+    )
+    agent_parser.add_argument(
+        "--max-turns",
+        type=int,
+        default=DEFAULT_AGENT_MAX_TURNS,
+        help=(
+            f"Soft cap on agent iterations — neither the Claude Code nor "
+            f"Codex CLI enforces a turn cap, so this is a warning threshold "
+            f"only. --timeout is the enforced backstop. "
+            f"(default: {DEFAULT_AGENT_MAX_TURNS})"
+        ),
+    )
+    agent_parser.add_argument(
+        "--agent-instructions",
+        type=str,
+        default=None,
+        help="Path to instructions file (written as CLAUDE.md or AGENTS.md)",
+    )
+    agent_parser.add_argument(
+        "--reasoning-effort",
+        type=str,
+        default="high",
+        help="Codex reasoning effort: minimal, low, medium, high, xhigh (default: high)",
+    )
+    agent_parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=DEFAULT_AGENT_CONCURRENCY,
+        help=f"Max parallel agent invocations (default: {DEFAULT_AGENT_CONCURRENCY})",
+    )
+    agent_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_AGENT_TIMEOUT,
+        help=f"Per-problem timeout in seconds (default: {DEFAULT_AGENT_TIMEOUT})",
+    )
+    agent_parser.add_argument(
+        "--output-dir", "-o", default="./outputs", help="Output directory"
+    )
+    agent_parser.add_argument(
+        "--keep-workspaces",
+        action="store_true",
+        help="Preserve workspace directories for debugging",
+    )
+    agent_parser.add_argument(
+        "--problem-ids",
+        type=int,
+        nargs="*",
+        default=None,
+        help="Only evaluate specific problem IDs",
+    )
+    agent_parser.add_argument(
+        "--skill-dirs",
+        type=str,
+        nargs="*",
+        default=None,
+        help="Paths to skill directories to install in agent workspaces",
+    )
+    agent_parser.add_argument(
+        "--no-skills",
+        action="store_true",
+        help=(
+            "Clean-room baseline: install NO skills (ignores --skill-dirs) and, "
+            "for the claude-code backend, block all global skills/plugins at the "
+            "CLI so the agent gets zero q/kdb help"
+        ),
+    )
+    agent_parser.add_argument(
+        "--extra-args",
+        type=str,
+        nargs="*",
+        default=None,
+        help="Additional arguments passed to agent CLI",
+    )
+    agent_parser.add_argument(
+        "--save-events",
+        action="store_true",
+        help=(
+            "Persist the agent's full event stream (tool calls, reasoning) "
+            "to <workspace>/events.jsonl for auditing skill activation, "
+            "tool selection, etc."
+        ),
+    )
+    agent_parser.set_defaults(func=agent_run_command)
 
     # 'list' subcommand
     list_parser = subparsers.add_parser(
