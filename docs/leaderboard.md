@@ -63,13 +63,14 @@ The following table shows model performance on the Q-HumanEval dataset, ranked b
 | 🥉 | **Claude 4 Sonnet**<br/>*Anthropic* | 🧠 Reasoning (medium) | *Unknown* | 37.70% | 53.47% | 59.13% |
 | 4 | **Gemini 2.5 pro**<br/>*Google* | 🧠 Reasoning (medium) | *Unknown* | 27.75% | 51.41% | 59.68% |
 | 5 | **GPT-5**<br/>*OpenAI* | 🧠 Reasoning (medium) | *Unknown* | 27.36% | 54.96% | 65.05% |
-| 6 | **o3**<br/>*OpenAI* | 🧠 Reasoning (medium) | *Unknown* | 18.42% | 40.93% | 52.15% |
-| 7 | **GPT-4o**<br/>*OpenAI* | 🔒 Proprietary | *Unknown* | 14.42% | 24.49% | 29.44% |
-| 8 | **Llama 3.3 70B**<br/>*Meta* | 🔓 Open Source | **70B** | 10.12% | 16.69% | 20.14% |
-| 9 | **DeepSeek-R1-Distill-Qwen-32B**<br/>*DeepSeek* | 🧠 Reasoning (medium) | **32B** | 9.32% | 17.59% | 22.10% |
-| 10 | **Qwen3 Coder 30B A3B**<br/>*Alibaba* | 🔓 Open Source | **30B** | 8.29% | 13.51% | 16.45% |
-| 11 | **Gemma 3 12B**<br/>*Google* | 🔓 Open Source | **12B** | 4.15% | 6.22% | 6.66% |
-| 12 | **Gemma 3 4B**<br/>*Google* | 🔓 Open Source | **4B** | 3.02% | 4.26% | 4.60% |
+| 6 | **Claude Haiku 4.5**<br/>*Anthropic* | 🔒 Proprietary | *Unknown* | 25.82% | 38.12% | 43.57% |
+| 7 | **o3**<br/>*OpenAI* | 🧠 Reasoning (medium) | *Unknown* | 18.42% | 40.93% | 52.15% |
+| 8 | **GPT-4o**<br/>*OpenAI* | 🔒 Proprietary | *Unknown* | 14.42% | 24.49% | 29.44% |
+| 9 | **Llama 3.3 70B**<br/>*Meta* | 🔓 Open Source | **70B** | 10.12% | 16.69% | 20.14% |
+| 10 | **DeepSeek-R1-Distill-Qwen-32B**<br/>*DeepSeek* | 🧠 Reasoning (medium) | **32B** | 9.32% | 17.59% | 22.10% |
+| 11 | **Qwen3 Coder 30B A3B**<br/>*Alibaba* | 🔓 Open Source | **30B** | 8.29% | 13.51% | 16.45% |
+| 12 | **Gemma 3 12B**<br/>*Google* | 🔓 Open Source | **12B** | 4.15% | 6.22% | 6.66% |
+| 13 | **Gemma 3 4B**<br/>*Google* | 🔓 Open Source | **4B** | 3.02% | 4.26% | 4.60% |
 
 ---
 
@@ -77,8 +78,8 @@ The following table shows model performance on the Q-HumanEval dataset, ranked b
 
 - **Agent leaderboard (new grader):** 7 models, 10 runs
 - **One-shot leaderboard (new grader):** 1 model (Claude Opus 4.8); GPT-5.5 run pending
-- **Historical one-shot (pre-#7 grader):** 12 models
-  - 🧠 Reasoning: 6 · 🔒 Proprietary: 1 · 🔓 Open Source: 5
+- **Historical one-shot (pre-#7 grader):** 13 models
+  - 🧠 Reasoning: 6 · 🔒 Proprietary: 2 · 🔓 Open Source: 5
 
 ### 🏆 Best Scores
 - **Highest agent Pass@1 (new grader):** Claude Opus 5 97.6% (skill ✗, clean room) — 95.7% with the skill
@@ -121,6 +122,6 @@ For reliable Pass@k evaluation, Q-HumanEval (164 problems) requires at least 50 
 
 ---
 
-**Last Updated:** June 26, 2026 | **Version:** 2.0.0
+**Last Updated:** April 16, 2026 | **Version:** 1.0.0 | **Total Submissions:** 13 models
 
 *Want to submit your model? Check out our [submission guide](submission_guide.md) for details.*
