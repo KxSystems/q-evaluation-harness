@@ -8,26 +8,32 @@ Welcome to the official leaderboard for Q programming language model evaluation!
 
 ## 🤖 Agent Leaderboard (new grader)
 
-Agent mode gives the model a Q interpreter and lets it iteratively write, run, and fix its solution (one task attempt, multiple turns). Run with `--timeout 300`; Codex at `--reasoning-effort high`.
+Agent mode gives the model a Q interpreter and lets it iteratively write, run, and fix its solution (one task attempt, multiple turns). Run with `--timeout 300` (Opus 5 and later: `--timeout 600`); Codex at `--reasoning-effort high`. Ranked by Pass@1. **Cost/task** is total API-equivalent spend ÷ 164 tasks attempted, the same per-task measure Databricks uses in its [coding-agent benchmark](https://www.databricks.com/blog/benchmarking-coding-agents-databricks-multi-million-line-codebase). See [Cost per task on q-humaneval](blog/2026-10-01-cost-per-task.md) for the write-up and chart.
 
-| Rank | Model | Backend | Skill | Pass@1 | Cost/run | Mean turns |
-|------|-------|---------|:-----:|--------|----------|-----------|
-| 🥇 | **Claude Opus 5** ‡ | Claude Code | ✗ | **97.6%** (160/164) | $39.70 | 7.6 |
-| 🥈 | **Claude Opus 5** ‡ | Claude Code | ✓ | **95.7%** (157/164) | $61.19 | 9.3 |
-| 🥉 | **Fable 5** \* | Claude Code | ✓ | 95.1% (156/164) | — | — |
-| 4 | **GPT-5.5** | Codex | ✓ | 94.5% (155/164) | — † | 18.8 |
-| 5 | **Claude Opus 4.8** | Claude Code | ✓ | 88.4% (145/164) | $52.40 | 8.7 |
-| 5 | **GPT-5.5** | Codex | ✗ | 88.4% (145/164) | — † | 20.3 |
-| 7 | **Claude Opus 4.8** | Claude Code | ✗ | 87.2% (143/164) | $24.86 | 5.8 |
-| 7 | **Claude Opus 4.7** \* | Claude Code | ✓ | 87.2% (143/164) | — | — |
-| 9 | **Claude Sonnet 4.6** \* | Claude Code | ✓ | 70.1% (115/164) | — | — |
-| 10 | **Claude Haiku 4.5** \* | Claude Code | ✓ | 37.2% (61/164) | — | — |
+| Rank | Model | Backend | Skill | Pass@1 | Cost/task | Cost/run | Mean turns |
+|------|-------|---------|:-----:|--------|-----------|----------|-----------|
+| 🥇 | **Claude Fable 5.1** § | Claude Code | ✗ | **98.2%** (161/164) | $0.252 | $41.35 | 3.8 |
+| 🥈 | **Claude Opus 5.5** § | Claude Code | ✗ | **97.6%** (160/164) | $0.085 | $13.97 | 2.7 |
+| 🥈 | **Claude Opus 5** ‡ | Claude Code | ✗ | **97.6%** (160/164) | $0.242 | $39.70 | 7.6 |
+| 4 | **Claude Sonnet 5.5** § | Claude Code | ✗ | 96.3% (158/164) | **$0.048** | $7.82 | 3.5 |
+| 5 | **Claude Opus 5** ‡ | Claude Code | ✓ | 95.7% (157/164) | $0.371 | $60.82 | 9.3 |
+| 6 | **Fable 5** \* | Claude Code | ✓ | 95.1% (156/164) | — | — | — |
+| 7 | **GPT-5.5** | Codex | ✓ | 94.5% (155/164) | — † | — † | 18.8 |
+| 8 | **Claude Sonnet 5** § | Claude Code | ✗ | 91.5% (150/164) | $0.121 | $19.87 | 7.4 |
+| 9 | **Claude Opus 4.8** | Claude Code | ✓ | 88.4% (145/164) | $0.320 | $52.40 | 8.7 |
+| 9 | **GPT-5.5** | Codex | ✗ | 88.4% (145/164) | — † | — † | 20.3 |
+| 11 | **Claude Opus 4.8** | Claude Code | ✗ | 87.2% (143/164) | $0.152 | $24.86 | 5.8 |
+| 11 | **Claude Opus 4.7** \* | Claude Code | ✓ | 87.2% (143/164) | — | — | — |
+| 13 | **Claude Sonnet 4.6** \* | Claude Code | ✓ | 70.1% (115/164) | — | — | — |
+| 14 | **Claude Haiku 4.5** \* | Claude Code | ✓ | 37.2% (61/164) | — | — | — |
 
-**Skill column** (`--skill-dirs` q-kdb skill, ✓ = installed, ✗ = clean-room `--no-skills`): the skill helps **GPT-5.5 by +6.1 pts** and **Opus 4.8 by +1.2 pts** (a near-ceiling model), but **costs Opus 5 1.9 pts** while running **1.54x more expensive** ($61.19 vs $39.70). On Opus 5 the skill never rescued a task the clean room missed (0 skilled-only wins vs 3 clean-room-only); at n=164 that gap is not statistically significant (exact McNemar p = 0.25), so read it as *no demonstrated benefit* rather than active harm. Final results for all arms carry zero infrastructure errors and zero missing solutions (for Opus 5 this is after the re-runs described in ‡).
+**Skill column** (`--skill-dirs` q-kdb skill, ✓ = installed, ✗ = clean-room `--no-skills`): the skill helps **GPT-5.5 by +6.1 pts** and **Opus 4.8 by +1.2 pts** (at **2.1x** the cost per task), but **costs Opus 5 1.9 pts** at **1.53x** the cost per task ($0.371 vs $0.242). On Opus 5 the skill never rescued a task the clean room missed (0 skilled-only wins vs 3 clean-room-only); at n=164 that gap is not statistically significant (exact McNemar p = 0.25), so read it as *no demonstrated benefit* rather than active harm. Final results for all arms carry zero infrastructure errors and zero missing solutions (for Opus 5 this is after the re-runs described in ‡).
+
+§ **Fall 2026 runs** (Opus 5.5, Sonnet 5.5 and Sonnet 5 on Sept 30; Fable 5.1 on Oct 1): clean room only, `--timeout 600`, Claude Code 2.1.286. No infrastructure errors. Fable 5.1 hit the 5-hour usage cap mid-run; the 31 affected tasks were deferred, not scored, and run after the reset, and cost counts final attempts only. Every agent event stream was audited. One finding: because task workspaces sit inside this repository, Claude Code loaded the operator's project memory notes into every Claude run listed here, including the July Opus 5 rows. No agent read the dataset or tests, and only one task in any run opened a memory note (Fable 5.1, task 118); re-run with memory disabled, it still passed. The harness now disables auto-memory for all agent runs. Claude Code applies per-turn effort to the two 5.5 models (not to Sonnet 5), so these rows measure each model together with Claude Code's default effort handling.
 
 \* **Reference rows** — prior overnight runs re-graded with the new grader, included for breadth. Caveats: run on a different machine, mostly `--timeout 600` with 5-hour-cap resume (so wall-time/cost are unreliable and omitted), and three dataset prompts changed after these runs (≤2 pt effect). These pre-date the `--no-skills` flag, so they used the default skill workflow and are reported as skill ✓.
 
-‡ **Opus 5 rows required manual re-runs.** A harness issue silently terminated some agent processes mid-task, and those tasks were initially scored as model failures; the affected tasks were re-run to completion and every task in both arms is verified attempted. Run at `--timeout 600`. Details in [OPUS-5-NOTES.md](OPUS-5-NOTES.md).
+‡ **Opus 5 rows required manual re-runs.** A harness issue silently terminated some agent processes mid-task, and those tasks were initially scored as model failures; the affected tasks were re-run to completion and every task in both arms is verified attempted. Run at `--timeout 600`. Cost counts each task's final attempt only, so the skilled arm is $60.82 rather than the $61.19 ledger total that included the aborted attempts. Details in [OPUS-5-NOTES.md](OPUS-5-NOTES.md).
 
 † Codex (GPT-5.5) cost is **not captured** by the CLI — tokens are recorded but dollar cost is not surfaced. Claude Code reports the API-equivalent cost (subscription-covered, so ~$0 cash in practice).
 
@@ -75,13 +81,14 @@ The following table shows model performance on the Q-HumanEval dataset, ranked b
 
 ## 📊 Statistics
 
-- **Agent leaderboard (new grader):** 7 models, 10 runs
+- **Agent leaderboard (new grader):** 11 models, 14 runs
 - **One-shot leaderboard (new grader):** 1 model (Claude Opus 4.8); GPT-5.5 run pending
 - **Historical one-shot (pre-#7 grader):** 12 models
   - 🧠 Reasoning: 6 · 🔒 Proprietary: 1 · 🔓 Open Source: 5
 
 ### 🏆 Best Scores
-- **Highest agent Pass@1 (new grader):** Claude Opus 5 97.6% (skill ✗, clean room) — 95.7% with the skill
+- **Highest agent Pass@1 (new grader):** Claude Fable 5.1, 98.2% (clean room), at $0.252 per task; Opus 5.5 is one problem behind at about a third of the cost
+- **Lowest agent cost per task (new grader):** Claude Sonnet 5.5, $0.048 at 96.3%
 - **Highest one-shot Pass@1 (new grader):** Claude Opus 4.8 53.2% (Pass@10 80.7%)
 - **Highest historical Pass@1 (pre-#7 grader):** qqWen 45.10% — best Pass@5/Pass@10: Grok (68.45% / 74.32%)
 
@@ -92,7 +99,7 @@ The following table shows model performance on the Q-HumanEval dataset, ranked b
 - **Original grader (historical):** everything in the Historical section was scored before #7 and is not comparable to the new-grader sections.
 
 ### Evaluation modes
-- **Agent mode:** one task attempt with iterative tool use against a live Q interpreter; `--timeout 300` per problem, Codex at `--reasoning-effort high`. Optionally install the q-kdb skill via `--skill-dirs` (the **Skill** column); `--no-skills` is the clean-room baseline.
+- **Agent mode:** one task attempt with iterative tool use against a live Q interpreter; `--timeout 300` per problem (600 for Opus 5 and later), Codex at `--reasoning-effort high`. Optionally install the q-kdb skill via `--skill-dirs` (the **Skill** column); `--no-skills` is the clean-room baseline.
 - **One-shot ("classic") mode:** 50 independent samples per problem, temperature 0.8, seed 1234, no tool use. Claude models run with **no extended thinking** (for comparability with the historical board); reasoning models keep their reasoning config.
 
 ### Evaluation Metrics
@@ -112,7 +119,8 @@ All models are evaluated using the same standardized process:
 4. Results verified for accuracy and reproducibility
 
 ### Cost capture
-- **Agent / Claude Code:** API-equivalent cost is recorded per run (subscription-covered in practice, so ~$0 cash).
+- **Agent / Claude Code:** API-equivalent cost is recorded per run (subscription-covered in practice, so ~$0 cash). It is computed at list prices and includes prompt caching (discounted cache reads, 1-hour cache writes at 2x input); recomputing it from the token counts matches the CLI's figure to the cent.
+- **Cost per task:** total cost ÷ tasks attempted (164), counting each task's final attempt only. This follows the per-task cost Databricks reports in [Benchmarking Coding Agents on Databricks' Multi-Million Line Codebase](https://www.databricks.com/blog/benchmarking-coding-agents-databricks-multi-million-line-codebase). Failed attempts are included in the spend, so a model that fails expensively pays for it.
 - **Agent / Codex:** the CLI records tokens but **not** dollar cost, so GPT-5.5 agent cost is shown as "—".
 - **One-shot / classic:** no token or cost data is recorded.
 
@@ -121,6 +129,6 @@ For reliable Pass@k evaluation, Q-HumanEval (164 problems) requires at least 50 
 
 ---
 
-**Last Updated:** June 26, 2026 | **Version:** 2.0.0
+**Last Updated:** October 1, 2026 | **Version:** 2.0.0
 
 *Want to submit your model? Check out our [submission guide](submission_guide.md) for details.*

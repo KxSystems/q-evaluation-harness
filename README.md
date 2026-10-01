@@ -15,11 +15,14 @@ Track the performance of Large Language Models on Q/kdb+ code generation tasks u
 
 **Agent mode** — one task attempt with iterative tool use (top results; q-kdb skill ✓ installed, ✗ clean room):
 
-| Rank | Model | Backend | Skill | Pass@1 |
-|------|-------|---------|:-----:|--------|
-| 🥇 | Claude Opus 5 | Claude Code | ✗ | **97.6%** |
-| 🥈 | Claude Opus 5 | Claude Code | ✓ | **95.7%** |
-| 🥉 | Fable 5 \* | Claude Code | ✓ | 95.1% |
+| Rank | Model | Backend | Skill | Pass@1 | Cost/task |
+|------|-------|---------|:-----:|--------|-----------|
+| 🥇 | Claude Fable 5.1 | Claude Code | ✗ | **98.2%** | $0.252 |
+| 🥈 | Claude Opus 5.5 | Claude Code | ✗ | **97.6%** | $0.085 |
+| 🥈 | Claude Opus 5 | Claude Code | ✗ | **97.6%** | $0.242 |
+| 4 | Claude Sonnet 5.5 | Claude Code | ✗ | 96.3% | **$0.048** |
+
+**New: cost per task.** Top models now score within a couple of points of each other, so the leaderboard also reports what each one costs to run: total API-equivalent spend divided by the 164 tasks attempted. We use the same measure Databricks uses in its [coding-agent benchmark](https://www.databricks.com/blog/benchmarking-coding-agents-databricks-multi-million-line-codebase). Rankings are still by Pass@1. Read [Cost per task on q-humaneval](docs/blog/2026-10-01-cost-per-task.md) for what it shows.
 
 **One-shot mode** — 50 independent samples, no tool use:
 
@@ -178,22 +181,28 @@ For Q evaluations, point `--skill-dirs` at any skill directory whose `SKILL.md` 
 
 Scored with the current grader ([PR #7](https://github.com/KxSystems/q-evaluation-harness/pull/7)). The **Skill** column marks whether the q-kdb skill was installed (✓ via `--skill-dirs`) or the clean-room `--no-skills` baseline (✗).
 
-| Rank | Model | Backend | Skill | Pass@1 | Cost/run | Mean turns |
-|------|-------|---------|:-----:|--------|----------|-----------|
-| 🥇 | Claude Opus 5 ‡ | Claude Code | ✗ | **97.6%** (160/164) | $39.70 | 7.6 |
-| 🥈 | Claude Opus 5 ‡ | Claude Code | ✓ | **95.7%** (157/164) | $61.19 | 9.3 |
-| 🥉 | Fable 5 \* | Claude Code | ✓ | 95.1% (156/164) | — | — |
-| 4 | GPT-5.5 | Codex | ✓ | 94.5% (155/164) | — † | 18.8 |
-| 5 | Claude Opus 4.8 | Claude Code | ✓ | 88.4% (145/164) | $52.40 | 8.7 |
-| 5 | GPT-5.5 | Codex | ✗ | 88.4% (145/164) | — † | 20.3 |
-| 7 | Claude Opus 4.8 | Claude Code | ✗ | 87.2% (143/164) | $24.86 | 5.8 |
-| 7 | Claude Opus 4.7 \* | Claude Code | ✓ | 87.2% (143/164) | — | — |
-| 9 | Claude Sonnet 4.6 \* | Claude Code | ✓ | 70.1% (115/164) | — | — |
-| 10 | Claude Haiku 4.5 \* | Claude Code | ✓ | 37.2% (61/164) | — | — |
+| Rank | Model | Backend | Skill | Pass@1 | Cost/task | Cost/run | Mean turns |
+|------|-------|---------|:-----:|--------|-----------|----------|-----------|
+| 🥇 | Claude Fable 5.1 § | Claude Code | ✗ | **98.2%** (161/164) | $0.252 | $41.35 | 3.8 |
+| 🥈 | Claude Opus 5.5 § | Claude Code | ✗ | **97.6%** (160/164) | $0.085 | $13.97 | 2.7 |
+| 🥈 | Claude Opus 5 ‡ | Claude Code | ✗ | **97.6%** (160/164) | $0.242 | $39.70 | 7.6 |
+| 4 | Claude Sonnet 5.5 § | Claude Code | ✗ | 96.3% (158/164) | **$0.048** | $7.82 | 3.5 |
+| 5 | Claude Opus 5 ‡ | Claude Code | ✓ | 95.7% (157/164) | $0.371 | $60.82 | 9.3 |
+| 6 | Fable 5 \* | Claude Code | ✓ | 95.1% (156/164) | — | — | — |
+| 7 | GPT-5.5 | Codex | ✓ | 94.5% (155/164) | — † | — † | 18.8 |
+| 8 | Claude Sonnet 5 § | Claude Code | ✗ | 91.5% (150/164) | $0.121 | $19.87 | 7.4 |
+| 9 | Claude Opus 4.8 | Claude Code | ✓ | 88.4% (145/164) | $0.320 | $52.40 | 8.7 |
+| 9 | GPT-5.5 | Codex | ✗ | 88.4% (145/164) | — † | — † | 20.3 |
+| 11 | Claude Opus 4.8 | Claude Code | ✗ | 87.2% (143/164) | $0.152 | $24.86 | 5.8 |
+| 11 | Claude Opus 4.7 \* | Claude Code | ✓ | 87.2% (143/164) | — | — | — |
+| 13 | Claude Sonnet 4.6 \* | Claude Code | ✓ | 70.1% (115/164) | — | — | — |
+| 14 | Claude Haiku 4.5 \* | Claude Code | ✓ | 37.2% (61/164) | — | — | — |
 
-Opus 5 is the first model where the skill **costs** accuracy (−1.9 pts) while running 1.54x more expensive — though at n=164 the gap is not statistically significant, so read it as no demonstrated benefit rather than active harm.
+**Cost/task** is total API-equivalent spend (list prices, including prompt caching) ÷ 164 tasks attempted, counting each task's final attempt only. See [Cost per task on q-humaneval](docs/blog/2026-10-01-cost-per-task.md).
 
-\* Reference rows — prior overnight runs re-graded with the new grader (different machine, ~600s timeout with cap-resume → cost/turns omitted; pre-date `--no-skills`, so reported as skill ✓). † Codex cost is not captured by the CLI. ‡ Opus 5 rows required manual re-runs after a harness issue silently terminated some agent processes mid-task; affected tasks were re-run and every task in both arms is verified attempted — see [OPUS-5-NOTES.md](docs/OPUS-5-NOTES.md). See the [full leaderboard](docs/leaderboard.md) for caveats and the GPT-5.5 cross-check.
+The skill no longer pays for itself on frontier Claude models. On Opus 5 it lost 1.9 points while raising cost per task 1.53x; on Opus 4.8 it gained 1.2 points for 2.1x the cost. At n=164 the Opus 5 accuracy gap is not statistically significant, so read it as no demonstrated benefit rather than active harm. The cost increase is not in doubt.
+
+\* Reference rows — prior overnight runs re-graded with the new grader (different machine, ~600s timeout with cap-resume → cost/turns omitted; pre-date `--no-skills`, so reported as skill ✓). † Codex cost is not captured by the CLI. ‡ Opus 5 rows required manual re-runs after a harness issue silently terminated some agent processes mid-task; affected tasks were re-run and every task in both arms is verified attempted — see [OPUS-5-NOTES.md](docs/OPUS-5-NOTES.md). § Fall 2026 runs (Sept 30 sweep; Fable 5.1 on Oct 1): clean room only, `--timeout 600`, Claude Code 2.1.286; Claude Code applies per-turn effort to the 5.5 models. Fable 5.1 hit the 5-hour usage cap mid-run; 31 tasks were deferred and run after the reset, and cost counts final attempts only. See the [full leaderboard](docs/leaderboard.md) for caveats and the GPT-5.5 cross-check.
 
 > Agent mode results are not directly comparable to the one-shot leaderboard — agents get a single task attempt but can iterate with tool use, while one-shot evaluation generates 50 independent samples per problem.
 
