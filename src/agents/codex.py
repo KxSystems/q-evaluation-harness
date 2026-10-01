@@ -78,6 +78,8 @@ class CodexBackend(AgentBackend):
         )
         self.reasoning_effort = reasoning_effort
 
+    cli_name = "codex"
+
     @property
     def name(self) -> str:
         return "codex"
@@ -219,6 +221,7 @@ class CodexBackend(AgentBackend):
                 raw_output=stdout,
                 error=stderr if process.returncode != 0 else None,
                 workspace_path=str(workspace),
+                agent_version=self.cli_version,
                 metadata=metadata,
             )
 
@@ -235,6 +238,7 @@ class CodexBackend(AgentBackend):
                 wall_time_seconds=wall_time,
                 error=f"Timed out after {self.timeout}s",
                 workspace_path=str(workspace),
+                agent_version=self.cli_version,
             )
         finally:
             if events_fh and not events_fh.closed:

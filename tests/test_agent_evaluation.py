@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.agents.base import AgentBackend, AgentResult
+from src.agents.base import AgentBackend, AgentResult, parse_cli_version
 from src.agents.claude_code import ClaudeCodeBackend
 from src.agents.codex import CodexBackend
 from src.agents.factory import create_agent_backend, list_agent_backends
@@ -473,3 +473,83 @@ class TestBuildAgentPrompt:
         prompt = _build_agent_prompt(problem, MockTemplate())
         assert "solution.q" in prompt
         assert "my_func" in prompt
+
+
+# --- Agent CLI Version Tests ---
+
+
+class TestAgentVersion:
+    """The agent CLI version is recorded per task and per run."""
+
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("2.1.286 (Claude Code)\n", "2.1.286"),
+            ("codex-cli 0.48.0", "0.48.0"),
+            ("1.0.0-beta.2", "1.0.0-beta.2"),
+            ("dev build\n", "dev build"),
+            ("", None),
+        ],
+    )
+    def test_parse_cli_version(self, text: str, expected: str) -> None:
+        assert parse_cli_version(text) == expected
+
+    def test_probe_version_runs_once(self) -> None:
+        backend = ClaudeCodeBackend(model="opus")
+        completed = MagicMock(stdout="2.1.286 (Claude Code)\n", stderr="")
+        with patch("src.agents.base.subprocess.run", return_value=completed) as run:
+            assert backend.probe_version() == "2.1.286"
+            assert backend.probe_version() == "2.1.286"
+        run.assert_called_once()
+        assert run.call_args.args[0] == ["claude", "--version"]
+
+    def test_probe_version_missing_cli(self) -> None:
+        backend = CodexBackend(model="gpt-5.5")
+        with patch("src.agents.base.subprocess.run", side_effect=FileNotFoundError):
+            assert backend.probe_version() is None
+
+    def test_stream_json_reads_init_version(self) -> None:
+        backend = ClaudeCodeBackend(model="opus", save_events=True)
+        events = "\n".join(
+            json.dumps(e)
+            for e in [
+                {"type": "system", "subtype": "init", "claude_code_version": "2.1.290"},
+                {"type": "result", "num_turns": 2, "usage": {}, "total_cost_usd": 0.1},
+            ]
+        )
+        assert backend._parse_stream_json(events)["agent_version"] == "2.1.290"
+
+    def test_metrics_record_versions(self) -> None:
+        from src.agents.runner import _calculate_agent_metrics
+
+        backend = create_agent_backend("claude-code", model="opus")
+        backend.cli_version = "2.1.286"
+        agent_results = [
+            AgentResult(task_id=i, success=True, solution_code="f:{x}",
+                        wall_time_seconds=1.0, agent_version=v)
+            for i, v in enumerate(["2.1.286", "2.1.290", None])
+        ]
+        execution_results = [
+            {"task_id": i, "passed": True, "agent_wall_time": 1.0} for i in range(3)
+        ]
+        summary = _calculate_agent_metrics(
+            execution_results, agent_results, backend, "q-humaneval"
+        )
+        assert summary["agent_cli_version"] == "2.1.286"
+        assert summary["agent_versions_seen"] == ["2.1.286", "2.1.290"]
+
+
+class TestClaudeCodeIsolation:
+    """Agents must not inherit the operator's Claude Code auto-memory."""
+
+    @pytest.mark.asyncio
+    async def test_auto_memory_disabled(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "task_0"
+        workspace.mkdir()
+        backend = ClaudeCodeBackend(model="opus", timeout=30.0)
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(return_value=(b"{}", b""))
+        mock_process.returncode = 0
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process) as ex:
+            await backend.invoke("Write function", workspace)
+        assert ex.call_args.kwargs["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"

@@ -66,10 +66,11 @@ async def run_agent_evaluation(
         problems = [p for p in problems if p.get("task_id") in problem_ids]
         logger.info(f"Filtered to {len(problems)} problems by ID")
 
+    cli_version = backend.probe_version()
     logger.info(
         f"Agent evaluation: {len(problems)} problems, "
-        f"backend={backend.name}, model={backend.model}, "
-        f"concurrency={concurrency}"
+        f"backend={backend.name} {cli_version or '(version unknown)'}, "
+        f"model={backend.model}, concurrency={concurrency}"
     )
 
     # Setup output paths
@@ -139,6 +140,7 @@ async def run_agent_evaluation(
                 "agent_wall_time": agent_result.wall_time_seconds,
                 "agent_num_turns": agent_result.num_turns,
                 "agent_cost_usd": agent_result.cost_usd,
+                "agent_version": agent_result.agent_version,
             }
             append_to_jsonl(solution_record, str(solutions_file))
 
@@ -343,6 +345,14 @@ def _calculate_agent_metrics(
         r.wall_time_seconds for r in agent_results if r.wall_time_seconds > 0
     ]
     costs = [r.cost_usd for r in agent_results if r.cost_usd is not None]
+    # A long run can straddle a CLI auto-update; more than one version here
+    # means the run mixes harness builds and should not be compared as one.
+    versions_seen = sorted({r.agent_version for r in agent_results if r.agent_version})
+    if len(versions_seen) > 1:
+        logger.warning(
+            f"Run used multiple {backend.name} versions: {versions_seen}. "
+            f"The CLI likely auto-updated mid-run."
+        )
     turns = [r.num_turns for r in agent_results if r.num_turns is not None]
     input_tokens_list = [
         r.input_tokens for r in agent_results if r.input_tokens is not None
@@ -381,6 +391,8 @@ def _calculate_agent_metrics(
         "agent_backend": backend.name,
         "agent_model": backend.model,
         "agent_max_turns": backend.max_turns,
+        "agent_cli_version": backend.cli_version,
+        "agent_versions_seen": versions_seen,
         "dataset": dataset,
         # Agent-specific metrics
         "agent_metrics": {
@@ -418,9 +430,10 @@ def _log_summary(summary: Dict[str, Any]) -> None:
     pass_rate = summary.get("pass_rate", 0)
     backend = summary.get("agent_backend", "unknown")
     model = summary.get("agent_model", "unknown")
+    version = summary.get("agent_cli_version") or "version unknown"
     logger.info(
         f"\n{'=' * 60}\n"
-        f"Agent Evaluation Results: {backend} / {model}\n"
+        f"Agent Evaluation Results: {backend} ({version}) / {model}\n"
         f"{'=' * 60}\n"
         f"Pass@1: {pass_rate:.1%} ({passed}/{scored})"
     )
