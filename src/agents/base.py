@@ -22,6 +22,9 @@ class AgentResult:
     num_turns: Optional[int] = None
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
+    # Subset of input_tokens served from the prompt cache (Codex only; Claude
+    # Code's input_tokens already exclude cached input).
+    cached_input_tokens: Optional[int] = None
     cost_usd: Optional[float] = None
     raw_output: Optional[str] = None
     error: Optional[str] = None
@@ -35,6 +38,10 @@ class AgentBackend(ABC):
     Each backend wraps a specific agent CLI (Claude Code, Codex, etc.)
     and handles workspace scaffolding, CLI invocation, and output parsing.
     """
+
+    # Where cost_usd comes from: "cli_reported" when the agent CLI reports a
+    # dollar figure, "list_price" when computed from tokens (src/agents/pricing.py).
+    cost_source: Optional[str] = None
 
     def __init__(
         self,

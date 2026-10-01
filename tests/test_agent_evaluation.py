@@ -324,21 +324,32 @@ class TestCodexBackend:
         yield workspace
         shutil.rmtree(temp)
 
-    @pytest.mark.asyncio
-    async def test_invoke_success(
-        self, backend: CodexBackend, temp_workspace: Path
-    ) -> None:
-        # Codex writes result.json
-        (temp_workspace / "result.json").write_text(
-            json.dumps({"input_tokens": 2000, "output_tokens": 500})
-        )
+    # Shape of a real codex-cli 0.159.3 `exec --json` stream (task 0, gpt-5.5).
+    CODEX_EVENTS = [
+        {"type": "thread.started", "thread_id": "t"},
+        {"type": "turn.started"},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": "ok"}},
+        {"type": "item.completed", "item": {"type": "command_execution"}},
+        {"type": "item.completed", "item": {"type": "file_change"}},
+        {"type": "item.completed", "item": {"type": "reasoning"}},
+        {
+            "type": "turn.completed",
+            "usage": {
+                "input_tokens": 133147,
+                "cached_input_tokens": 112640,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 3083,
+                "reasoning_output_tokens": 1046,
+            },
+        },
+    ]
 
-        jsonl_events = "\n".join(
-            [
-                json.dumps({"type": "turn.completed", "turn": 1}),
-                json.dumps({"type": "turn.completed", "turn": 2}),
-            ]
-        )
+    @pytest.mark.asyncio
+    async def test_invoke_success(self, temp_workspace: Path) -> None:
+        backend = CodexBackend(model="gpt-5.5", timeout=30.0)
+        # -o writes the last message as plain text; it must not break parsing.
+        (temp_workspace / "last_message.txt").write_text("Implemented solution.q")
+        jsonl_events = "\n".join(json.dumps(e) for e in self.CODEX_EVENTS)
 
         mock_process = AsyncMock()
         mock_process.communicate = AsyncMock(
@@ -350,8 +361,26 @@ class TestCodexBackend:
             result = await backend.invoke("Write the Q function", temp_workspace)
 
         assert result.success is True
-        assert result.num_turns == 2
-        assert result.input_tokens == 2000
+        assert result.num_turns == 3  # reasoning items are not actions
+        assert result.input_tokens == 133147
+        assert result.cached_input_tokens == 112640
+        assert result.output_tokens == 3083
+        # (133147-112640)*5 + 112640*0.50 + 3083*30, per 1M tokens
+        assert result.cost_usd == pytest.approx(0.251345)
+        assert result.metadata["reasoning_output_tokens"] == 1046
+
+    def test_unknown_model_has_no_cost(self, backend: CodexBackend) -> None:
+        events = "\n".join(json.dumps(e) for e in self.CODEX_EVENTS)
+        metadata = backend._parse_output(events, Path("."))
+        assert metadata["input_tokens"] == 133147
+        assert metadata["cost_usd"] is None  # gpt-5.3-codex is not priced
+
+    def test_no_usage_event_means_no_tokens(self, backend: CodexBackend) -> None:
+        metadata = backend._parse_output(
+            json.dumps({"type": "turn.started"}), Path(".")
+        )
+        assert "input_tokens" not in metadata
+        assert "cost_usd" not in metadata
 
     @pytest.mark.asyncio
     async def test_invoke_builds_correct_command(
@@ -371,7 +400,9 @@ class TestCodexBackend:
         assert "exec" in call_args
         assert "--model" in call_args
         assert "gpt-5.3-codex" in call_args
-        assert "--full-auto" in call_args
+        assert "--full-auto" not in call_args  # removed in codex-cli 0.159
+        i = call_args.index("--sandbox")
+        assert call_args[i + 1] == "workspace-write"
 
 
 # --- Agent Metrics Tests ---
@@ -473,3 +504,32 @@ class TestBuildAgentPrompt:
         prompt = _build_agent_prompt(problem, MockTemplate())
         assert "solution.q" in prompt
         assert "my_func" in prompt
+
+
+# --- Pricing Tests ---
+
+
+class TestPricing:
+    """List-price cost for backends whose CLI reports only tokens."""
+
+    def test_openai_cost_formula(self) -> None:
+        from src.agents.pricing import openai_cost_usd
+
+        # 1M uncached in, 1M cached in, 1M out at gpt-5.5 list prices
+        cost = openai_cost_usd("gpt-5.5", 2_000_000, 1_000_000, 1_000_000)
+        assert cost == pytest.approx(5.00 + 0.50 + 30.00)
+
+    def test_cached_never_exceeds_input(self) -> None:
+        from src.agents.pricing import openai_cost_usd
+
+        cost = openai_cost_usd("gpt-5.4", 100, 500, 0)
+        assert cost == pytest.approx(100 * 0.25 / 1_000_000)
+
+    def test_unknown_model_is_none(self) -> None:
+        from src.agents.pricing import openai_cost_usd
+
+        assert openai_cost_usd("gpt-9-imaginary", 1000, 0, 1000) is None
+
+    def test_cost_source_per_backend(self) -> None:
+        assert ClaudeCodeBackend(model="opus").cost_source == "cli_reported"
+        assert CodexBackend(model="gpt-5.5").cost_source == "list_price"

@@ -139,6 +139,10 @@ async def run_agent_evaluation(
                 "agent_wall_time": agent_result.wall_time_seconds,
                 "agent_num_turns": agent_result.num_turns,
                 "agent_cost_usd": agent_result.cost_usd,
+                # Per-task tokens, so cost can be recomputed if prices change.
+                "agent_input_tokens": agent_result.input_tokens,
+                "agent_cached_input_tokens": agent_result.cached_input_tokens,
+                "agent_output_tokens": agent_result.output_tokens,
             }
             append_to_jsonl(solution_record, str(solutions_file))
 
@@ -381,6 +385,9 @@ def _calculate_agent_metrics(
         "agent_backend": backend.name,
         "agent_model": backend.model,
         "agent_max_turns": backend.max_turns,
+        # "cli_reported" (agent CLI's own figure) or "list_price" (computed
+        # from tokens at the prices in src/agents/pricing.py).
+        "agent_cost_source": backend.cost_source if costs else None,
         "dataset": dataset,
         # Agent-specific metrics
         "agent_metrics": {
