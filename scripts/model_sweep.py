@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Clean-room (--no-skills) q-humaneval sweep over several models of one backend.
+"""q-humaneval sweep over several models of one backend, clean room (--no-skills)
+by default or with the q-kdb skill installed (SWEEP_ARM=skilled).
 
 Generalisation of scripts/opus5_ab.py (branch harness-abort-detection-tooling):
 same abort detection, pidfile lock and cap-aware resume, but one ledger per
@@ -30,7 +31,9 @@ MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-5"]
 if os.environ.get("SWEEP_MODELS"):
     MODELS = os.environ["SWEEP_MODELS"].split(",")
 BACKEND = os.environ.get("SWEEP_BACKEND", "claude-code")
-ARM_ARGS = ["--no-skills"]
+SKILL = os.path.expanduser("~/.q-eval/skills/q-kdb")
+ARM = os.environ.get("SWEEP_ARM", "noskill")
+ARM_ARGS = {"noskill": ["--no-skills"], "skilled": ["--skill-dirs", SKILL]}[ARM]
 BASE = os.environ.get("SWEEP_BASE", "outputs/sweep")
 ALL_IDS = [json.loads(l)["task_id"] for l in open("datasets/q_humaneval.jsonl")]
 if os.environ.get("SWEEP_IDS"):  # smoke-test subset
@@ -50,7 +53,7 @@ def load_state(model):
     p = state_path(model)
     if os.path.exists(p):
         return json.load(open(p))
-    return {"model": model, "dataset": "q-humaneval", "arm": "noskill",
+    return {"model": model, "dataset": "q-humaneval", "arm": ARM,
             "total": len(ALL_IDS), "pending": list(ALL_IDS), "passed": [],
             "failed": [], "runs": [], "cost": 0.0, "next_eligible_epoch": 0,
             "cycles": 0}
