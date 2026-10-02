@@ -4,8 +4,9 @@
 Cost per task = total API-equivalent spend / tasks attempted (164), i.e. the
 per-attempt metric Databricks reports in "Benchmarking Coding Agents on
 Databricks' Multi-Million Line Codebase" (July 2026). List prices including
-cache reads/writes, as reported by the Claude Code CLI; only each task's final
-attempt counts (harness-abort re-runs excluded).
+cache reads/writes, as reported by the Claude Code CLI (Codex: computed from
+tokens, src/agents/pricing.py); only each task's final attempt counts
+(harness-abort re-runs excluded).
 
 Styled after kx.com: dark panel, yellow marks, red frontier, heavy
 uppercase headline with one phrase in the link blue. One image serves both
@@ -28,7 +29,8 @@ N = 164
 # Sources: outputs/results_agent_<model>_{noskill,skill}.json (Fable 5.1:
 # final attempts only, $41.35). Opus 5 skill arm
 # counts final attempts only ($60.82). Opus 4.8 as published in #9 (run data
-# not in this checkout; --timeout 300).
+# not in this checkout; --timeout 300). GPT rows: outputs/sweep_gpt{,_skilled}
+# (Codex 0.160.0, 2026-10-02).
 ROWS = [
     ("Fable 5.1",  False, 161, 41.35),
     ("Opus 5.5",   False, 160, 13.97),
@@ -38,9 +40,16 @@ ROWS = [
     ("Opus 5",     True,  157, 60.82),
     ("Opus 4.8",   False, 143, 24.86),
     ("Opus 4.8",   True,  145, 52.40),
+    ("GPT-5.5",     False, 149, 36.98),
+    ("GPT-5.6 Sol", False, 147, 24.59),
+    ("GPT-6 Sol",   False, 150, 13.05),
+    ("GPT-6 Sol",   True,  156, 14.45),
 ]
 
-NEW = {"Fable 5.1", "Opus 5.5", "Sonnet 5.5"}
+NEW = {"Fable 5.1", "Opus 5.5", "Sonnet 5.5", "GPT-5.6 Sol", "GPT-6 Sol"}
+GPT = {"GPT-5.5", "GPT-5.6 Sol", "GPT-6 Sol"}
+# model whose clean-room -> skilled jump gets an arrow
+SKILL_ARROW = "GPT-6 Sol"
 
 # label offsets in points, hand-placed to avoid collisions
 OFFSETS = {
@@ -48,6 +57,8 @@ OFFSETS = {
     ("Sonnet 5", False): (11, -4), ("Opus 5", False): (8, -15),
     ("Opus 5", True): (11, -4), ("Opus 4.8", False): (11, -4),
     ("Opus 4.8", True): (11, -4), ("Fable 5.1", False): (11, 0),
+    ("GPT-5.5", False): (11, -4), ("GPT-5.6 Sol", False): (11, -4),
+    ("GPT-6 Sol", False): (-11, -4), ("GPT-6 Sol", True): (11, -4),
 }
 
 # kx.com palette (from the site's CSS custom properties)
@@ -122,9 +133,20 @@ def draw():
                 ((x_old + x_new) / 2, ay), xytext=(0, 7), textcoords="offset points",
                 ha="center", fontsize=8, color=INK2, **BOLD)
 
+    # the skill's effect on one model: clean-room point -> skilled point
+    (c0, y0), (c1, y1) = [(x, y) for (name, _, _, _), (x, y) in zip(ROWS, pts)
+                          if name == SKILL_ARROW]
+    ax.annotate("", xy=(c1, y1), xytext=(c0, y0),
+                arrowprops=dict(arrowstyle="-|>,head_length=0.4,head_width=0.2",
+                                color=MUTED, lw=1, shrinkA=6, shrinkB=7))
+    ax.annotate(f"+{y1 - y0:.1f} pts with skill", ((c0 + c1) / 2, (y0 + y1) / 2),
+                xytext=(8, 0), textcoords="offset points", va="center",
+                fontsize=8, color=INK2)
+
     for (name, skill, p, cost), (x, y) in zip(ROWS, pts):
         ax.scatter(x, y, s=80, marker="s" if skill else "o",
-                   color=YELLOW, edgecolors=BG, linewidths=2, zorder=4)
+                   color=BLUE if name in GPT else YELLOW,
+                   edgecolors=BG, linewidths=2, zorder=4)
         dx, dy = OFFSETS[(name, skill)]
         ax.annotate(name + (" + skill" if skill else ""), (x, y), xytext=(dx, dy),
                     textcoords="offset points",
@@ -145,8 +167,10 @@ def draw():
     ax.tick_params(colors=INK2, length=0, labelsize=8.5)
 
     legend = [
-        Line2D([], [], marker="o", ls="", ms=8, color=YELLOW, label="Clean room"),
-        Line2D([], [], marker="s", ls="", ms=8, color=YELLOW, label="With q-kdb skill"),
+        Line2D([], [], marker="o", ls="", ms=8, color=YELLOW, label="Claude (Claude Code)"),
+        Line2D([], [], marker="o", ls="", ms=8, color=BLUE, label="GPT (Codex)"),
+        Line2D([], [], marker="o", ls="", ms=8, color=INK2, label="Clean room"),
+        Line2D([], [], marker="s", ls="", ms=8, color=INK2, label="With q-kdb skill"),
     ]
     leg = ax.legend(handles=legend, loc="center right", frameon=False, fontsize=8.5,
                     handletextpad=0.4, labelspacing=0.6)
@@ -157,7 +181,7 @@ def draw():
              color=YELLOW, va="top", **BOLD)
     headline(fig, 0.035, 0.915, [("SAME SCORE, ", INK), ("A THIRD OF THE PRICE", BLUE)],
              fontsize=17, va="top", **BOLD)
-    fig.text(0.035, 0.845, "Claude models on 164 q tasks in Claude Code. Cost per task = "
+    fig.text(0.035, 0.845, "Claude and GPT models on 164 q tasks. Cost per task = "
              "total spend ÷ tasks attempted, final attempts only.",
              fontsize=8.5, color=INK2, va="top")
     fig.subplots_adjust(left=0.1, right=0.97, top=0.78, bottom=0.12)
