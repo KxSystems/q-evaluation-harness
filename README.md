@@ -188,21 +188,26 @@ Scored with the current grader ([PR #7](https://github.com/KxSystems/q-evaluatio
 | 🥈 | Claude Opus 5 ‡ | Claude Code | ✗ | **97.6%** (160/164) | $0.242 | $39.70 | 7.6 |
 | 4 | Claude Sonnet 5.5 § | Claude Code | ✗ | 96.3% (158/164) | **$0.048** | $7.82 | 3.5 |
 | 5 | Claude Opus 5 ‡ | Claude Code | ✓ | 95.7% (157/164) | $0.371 | $60.82 | 9.3 |
+| 6 | GPT-6 Sol ¶ | Codex | ✓ | 95.1% (156/164) | $0.088 | $14.45 | 14.7 |
 | 6 | Fable 5 \* | Claude Code | ✓ | 95.1% (156/164) | — | — | — |
-| 7 | GPT-5.5 | Codex | ✓ | 94.5% (155/164) | — † | — † | 18.8 |
-| 8 | Claude Sonnet 5 § | Claude Code | ✗ | 91.5% (150/164) | $0.121 | $19.87 | 7.4 |
-| 9 | Claude Opus 4.8 | Claude Code | ✓ | 88.4% (145/164) | $0.320 | $52.40 | 8.7 |
-| 9 | GPT-5.5 | Codex | ✗ | 88.4% (145/164) | — † | — † | 20.3 |
-| 11 | Claude Opus 4.8 | Claude Code | ✗ | 87.2% (143/164) | $0.152 | $24.86 | 5.8 |
-| 11 | Claude Opus 4.7 \* | Claude Code | ✓ | 87.2% (143/164) | — | — | — |
-| 13 | Claude Sonnet 4.6 \* | Claude Code | ✓ | 70.1% (115/164) | — | — | — |
-| 14 | Claude Haiku 4.5 \* | Claude Code | ✓ | 37.2% (61/164) | — | — | — |
+| 8 | GPT-5.5 | Codex | ✓ | 94.5% (155/164) | — † | — † | 18.8 |
+| 9 | GPT-6 Sol ¶ | Codex | ✗ | 91.5% (150/164) | $0.080 | $13.05 | 14.5 |
+| 9 | Claude Sonnet 5 § | Claude Code | ✗ | 91.5% (150/164) | $0.121 | $19.87 | 7.4 |
+| 11 | GPT-5.5 ¶ | Codex | ✗ | 90.9% (149/164) | $0.225 | $36.98 | 20.9 |
+| 12 | GPT-5.6 Sol ¶ | Codex | ✗ | 89.6% (147/164) | $0.150 | $24.59 | 10.7 |
+| 13 | Claude Opus 4.8 | Claude Code | ✓ | 88.4% (145/164) | $0.320 | $52.40 | 8.7 |
+| 14 | Claude Opus 4.8 | Claude Code | ✗ | 87.2% (143/164) | $0.152 | $24.86 | 5.8 |
+| 14 | Claude Opus 4.7 \* | Claude Code | ✓ | 87.2% (143/164) | — | — | — |
+| 16 | Claude Sonnet 4.6 \* | Claude Code | ✓ | 70.1% (115/164) | — | — | — |
+| 17 | Claude Haiku 4.5 \* | Claude Code | ✓ | 37.2% (61/164) | — | — | — |
 
 **Cost/task** is total API-equivalent spend (list prices, including prompt caching) ÷ 164 tasks attempted, counting each task's final attempt only. See [Cost per task on q-humaneval](docs/blog/2026-10-01-cost-per-task.md).
 
-The skill no longer pays for itself on frontier Claude models. On Opus 5 it lost 1.9 points while raising cost per task 1.53x; on Opus 4.8 it gained 1.2 points for 2.1x the cost. At n=164 the Opus 5 accuracy gap is not statistically significant, so read it as no demonstrated benefit rather than active harm. The cost increase is not in doubt.
+The skill no longer pays for itself on frontier Claude models. On Opus 5 it lost 1.9 points while raising cost per task 1.53x; on Opus 4.8 it gained 1.2 points for 2.1x the cost. At n=164 the Opus 5 accuracy gap is not statistically significant, so read it as no demonstrated benefit rather than active harm. The cost increase is not in doubt. The GPT models are different: the skill lifts GPT-6 Sol by 3.7 points (95.1% vs 91.5%) for only 11% more cost per task, and GPT-5.5 by a similar margin.
 
-\* Reference rows — prior overnight runs re-graded with the new grader (different machine, ~600s timeout with cap-resume → cost/turns omitted; pre-date `--no-skills`, so reported as skill ✓). † Codex cost is not captured by the CLI. ‡ Opus 5 rows required manual re-runs after a harness issue silently terminated some agent processes mid-task; affected tasks were re-run and every task in both arms is verified attempted — see [OPUS-5-NOTES.md](docs/OPUS-5-NOTES.md). § Fall 2026 runs (Sept 30 sweep; Fable 5.1 on Oct 1): clean room only, `--timeout 600`, Claude Code 2.1.286; Claude Code applies per-turn effort to the 5.5 models. Fable 5.1 hit the 5-hour usage cap mid-run; 31 tasks were deferred and run after the reset, and cost counts final attempts only. See the [full leaderboard](docs/leaderboard.md) for caveats and the GPT-5.5 cross-check.
+Across six months of OpenAI flagships (GPT-5.5 in April, GPT-5.6 Sol in July, GPT-6 Sol in September), clean-room scores held at about 90% while cost per task fell 65%, from $0.225 to $0.080. Almost all of that drop is lower token prices; each model uses about as many tokens per task as the last.
+
+\* Reference rows — prior overnight runs re-graded with the new grader (different machine, ~600s timeout with cap-resume → cost/turns omitted; pre-date `--no-skills`, so reported as skill ✓). † The April GPT-5.5 skilled run pre-dates Codex cost capture. ¶ OpenAI runs, Oct 2 2026: Codex 0.160.0, `--reasoning-effort high`, `--timeout 600`; cost computed from token counts at OpenAI list prices; the October GPT-5.5 clean-room run replaces April's (145/164, no cost). Mean turns are not comparable across backends: Codex counts every action, Claude Code counts model round trips (see the full leaderboard). ‡ Opus 5 rows required manual re-runs after a harness issue silently terminated some agent processes mid-task; affected tasks were re-run and every task in both arms is verified attempted — see [OPUS-5-NOTES.md](docs/OPUS-5-NOTES.md). § Fall 2026 runs (Sept 30 sweep; Fable 5.1 on Oct 1): clean room only, `--timeout 600`, Claude Code 2.1.286; Claude Code applies per-turn effort to the 5.5 models. Fable 5.1 hit the 5-hour usage cap mid-run; 31 tasks were deferred and run after the reset, and cost counts final attempts only. See the [full leaderboard](docs/leaderboard.md) for caveats, the GPT-5.5 cross-check, and what's next (a skilled GPT-5.6 Sol run).
 
 > Agent mode results are not directly comparable to the one-shot leaderboard — agents get a single task attempt but can iterate with tool use, while one-shot evaluation generates 50 independent samples per problem.
 

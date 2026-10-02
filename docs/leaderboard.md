@@ -17,17 +17,20 @@ Agent mode gives the model a Q interpreter and lets it iteratively write, run, a
 | 🥈 | **Claude Opus 5** ‡ | Claude Code | ✗ | **97.6%** (160/164) | $0.242 | $39.70 | 7.6 |
 | 4 | **Claude Sonnet 5.5** § | Claude Code | ✗ | 96.3% (158/164) | **$0.048** | $7.82 | 3.5 |
 | 5 | **Claude Opus 5** ‡ | Claude Code | ✓ | 95.7% (157/164) | $0.371 | $60.82 | 9.3 |
+| 6 | **GPT-6 Sol** ¶ | Codex | ✓ | 95.1% (156/164) | $0.088 | $14.45 | 14.7 |
 | 6 | **Fable 5** \* | Claude Code | ✓ | 95.1% (156/164) | — | — | — |
-| 7 | **GPT-5.5** | Codex | ✓ | 94.5% (155/164) | — † | — † | 18.8 |
-| 8 | **Claude Sonnet 5** § | Claude Code | ✗ | 91.5% (150/164) | $0.121 | $19.87 | 7.4 |
-| 9 | **Claude Opus 4.8** | Claude Code | ✓ | 88.4% (145/164) | $0.320 | $52.40 | 8.7 |
-| 9 | **GPT-5.5** | Codex | ✗ | 88.4% (145/164) | — † | — † | 20.3 |
-| 11 | **Claude Opus 4.8** | Claude Code | ✗ | 87.2% (143/164) | $0.152 | $24.86 | 5.8 |
-| 11 | **Claude Opus 4.7** \* | Claude Code | ✓ | 87.2% (143/164) | — | — | — |
-| 13 | **Claude Sonnet 4.6** \* | Claude Code | ✓ | 70.1% (115/164) | — | — | — |
-| 14 | **Claude Haiku 4.5** \* | Claude Code | ✓ | 37.2% (61/164) | — | — | — |
+| 8 | **GPT-5.5** | Codex | ✓ | 94.5% (155/164) | — † | — † | 18.8 |
+| 9 | **GPT-6 Sol** ¶ | Codex | ✗ | 91.5% (150/164) | $0.080 | $13.05 | 14.5 |
+| 9 | **Claude Sonnet 5** § | Claude Code | ✗ | 91.5% (150/164) | $0.121 | $19.87 | 7.4 |
+| 11 | **GPT-5.5** ¶ | Codex | ✗ | 90.9% (149/164) | $0.225 | $36.98 | 20.9 |
+| 12 | **GPT-5.6 Sol** ¶ | Codex | ✗ | 89.6% (147/164) | $0.150 | $24.59 | 10.7 |
+| 13 | **Claude Opus 4.8** | Claude Code | ✓ | 88.4% (145/164) | $0.320 | $52.40 | 8.7 |
+| 14 | **Claude Opus 4.8** | Claude Code | ✗ | 87.2% (143/164) | $0.152 | $24.86 | 5.8 |
+| 14 | **Claude Opus 4.7** \* | Claude Code | ✓ | 87.2% (143/164) | — | — | — |
+| 16 | **Claude Sonnet 4.6** \* | Claude Code | ✓ | 70.1% (115/164) | — | — | — |
+| 17 | **Claude Haiku 4.5** \* | Claude Code | ✓ | 37.2% (61/164) | — | — | — |
 
-**Skill column** (`--skill-dirs` q-kdb skill, ✓ = installed, ✗ = clean-room `--no-skills`): the skill helps **GPT-5.5 by +6.1 pts** and **Opus 4.8 by +1.2 pts** (at **2.1x** the cost per task), but **costs Opus 5 1.9 pts** at **1.53x** the cost per task ($0.371 vs $0.242). On Opus 5 the skill never rescued a task the clean room missed (0 skilled-only wins vs 3 clean-room-only); at n=164 that gap is not statistically significant (exact McNemar p = 0.25), so read it as *no demonstrated benefit* rather than active harm. Final results for all arms carry zero infrastructure errors and zero missing solutions (for Opus 5 this is after the re-runs described in ‡).
+**Skill column** (`--skill-dirs` q-kdb skill, ✓ = installed, ✗ = clean-room `--no-skills`): the skill still helps the GPT models. **GPT-6 Sol gains +3.7 pts** (156 vs 150) at only **1.11x** the cost per task ($0.088 vs $0.080); it rescued 8 tasks and broke 2 (exact McNemar p = 0.11, suggestive but not significant at n=164). Three of the rescued tasks (22, 88, 109) were failed by every GPT model in the clean room. **GPT-5.5 gains +3.7 pts** against its October clean-room run (155 vs 149; +6.1 against the April run's 145). The skill helps **Opus 4.8 by +1.2 pts** (at **2.1x** the cost per task), but **costs Opus 5 1.9 pts** at **1.53x** the cost per task ($0.371 vs $0.242). On Opus 5 the skill never rescued a task the clean room missed (0 skilled-only wins vs 3 clean-room-only); at n=164 that gap is not statistically significant (exact McNemar p = 0.25), so read it as *no demonstrated benefit* rather than active harm. Final results for all arms carry zero infrastructure errors and zero missing solutions (for Opus 5 this is after the re-runs described in ‡).
 
 § **Fall 2026 runs** (Opus 5.5, Sonnet 5.5 and Sonnet 5 on Sept 30; Fable 5.1 on Oct 1): clean room only, `--timeout 600`, Claude Code 2.1.286. No infrastructure errors. Fable 5.1 hit the 5-hour usage cap mid-run; the 31 affected tasks were deferred, not scored, and run after the reset, and cost counts final attempts only. Every agent event stream was audited. One finding: because task workspaces sit inside this repository, Claude Code loaded the operator's project memory notes into every Claude run listed here, including the July Opus 5 rows. No agent read the dataset or tests, and only one task in any run opened a memory note (Fable 5.1, task 118); re-run with memory disabled, it still passed. The harness now disables auto-memory for all agent runs. Claude Code applies per-turn effort to the two 5.5 models (not to Sonnet 5), so these rows measure each model together with Claude Code's default effort handling.
 
@@ -35,9 +38,15 @@ Agent mode gives the model a Q interpreter and lets it iteratively write, run, a
 
 ‡ **Opus 5 rows required manual re-runs.** A harness issue silently terminated some agent processes mid-task, and those tasks were initially scored as model failures; the affected tasks were re-run to completion and every task in both arms is verified attempted. Run at `--timeout 600`. Cost counts each task's final attempt only, so the skilled arm is $60.82 rather than the $61.19 ledger total that included the aborted attempts. Details in [OPUS-5-NOTES.md](OPUS-5-NOTES.md).
 
-† Codex (GPT-5.5) cost is **not captured** by the CLI — tokens are recorded but dollar cost is not surfaced. Claude Code reports the API-equivalent cost (subscription-covered, so ~$0 cash in practice).
+¶ **OpenAI runs, Oct 2 2026:** Codex CLI 0.160.0, `--reasoning-effort high`, `--timeout 600`, ChatGPT Business subscription. Clean room for all three models, plus a skilled GPT-6 Sol arm. Every task attempted, with no timeouts, missing solutions or rate-limit deferrals. Cost is computed from Codex's token counts at OpenAI's list prices as of Oct 2 (GPT-5.6 Sol at its post-July-30 price), including cached-input discounts. The October GPT-5.5 clean-room run replaces the April one (145/164, no cost captured); the 4-task difference is run-to-run variance, not a model change.
 
-> **Cross-check:** an independent prior agentic GPT-5.5 run re-grades to **93.3%** (153/164), matching the fresh 94.5% within run-to-run variance.
+**Mean turns are not comparable across backends.** Codex counts every action (each shell command, file edit and message), while Claude Code counts model round trips, which can bundle several tool calls. Counted the same way, as tool actions per task, the gap is even wider: Opus 5.5 takes 1.7 and Sonnet 5.5 2.5, against 12.8 for GPT-5.5, 7.4 for GPT-5.6 Sol and 11.3 for GPT-6 Sol. Two thirds of GPT-6 Sol's commands are q test runs. The extra actions cost little because each round trip mostly re-reads cached context.
+
+† The April GPT-5.5 skilled run pre-dates Codex cost capture: tokens were recorded but no dollar cost. Claude Code reports the API-equivalent cost itself (subscription-covered, so ~$0 cash in practice).
+
+> **Cross-check:** an independent prior agentic GPT-5.5 run re-grades to **93.3%** (153/164), matching the skilled 94.5% within run-to-run variance.
+
+> **What's next:** a skilled GPT-5.6 Sol run, to complete the skill A/B across the OpenAI line. GPT-5.5 and GPT-6 Sol both gain about 4 points from the skill; the open question is whether GPT-5.6 Sol, whose prompting guidance favors leaner context, follows the same pattern.
 
 > Agent results are **not** comparable to the one-shot board below — agents get a single task attempt but iterate with tool use, while one-shot evaluation draws 50 independent samples per problem.
 
@@ -81,7 +90,7 @@ The following table shows model performance on the Q-HumanEval dataset, ranked b
 
 ## 📊 Statistics
 
-- **Agent leaderboard (new grader):** 11 models, 14 runs
+- **Agent leaderboard (new grader):** 13 models, 17 runs
 - **One-shot leaderboard (new grader):** 1 model (Claude Opus 4.8); GPT-5.5 run pending
 - **Historical one-shot (pre-#7 grader):** 12 models
   - 🧠 Reasoning: 6 · 🔒 Proprietary: 1 · 🔓 Open Source: 5
@@ -89,6 +98,7 @@ The following table shows model performance on the Q-HumanEval dataset, ranked b
 ### 🏆 Best Scores
 - **Highest agent Pass@1 (new grader):** Claude Fable 5.1, 98.2% (clean room), at $0.252 per task; Opus 5.5 is one problem behind at about a third of the cost
 - **Lowest agent cost per task (new grader):** Claude Sonnet 5.5, $0.048 at 96.3%
+- **Best OpenAI agent (new grader):** GPT-6 Sol, 95.1% with the q-kdb skill at $0.088 per task (91.5% clean room at $0.080)
 - **Highest one-shot Pass@1 (new grader):** Claude Opus 4.8 53.2% (Pass@10 80.7%)
 - **Highest historical Pass@1 (pre-#7 grader):** qqWen 45.10% — best Pass@5/Pass@10: Grok (68.45% / 74.32%)
 
@@ -121,7 +131,7 @@ All models are evaluated using the same standardized process:
 ### Cost capture
 - **Agent / Claude Code:** API-equivalent cost is recorded per run (subscription-covered in practice, so ~$0 cash). It is computed at list prices and includes prompt caching (discounted cache reads, 1-hour cache writes at 2x input); recomputing it from the token counts matches the CLI's figure to the cent.
 - **Cost per task:** total cost ÷ tasks attempted (164), counting each task's final attempt only. This follows the per-task cost Databricks reports in [Benchmarking Coding Agents on Databricks' Multi-Million Line Codebase](https://www.databricks.com/blog/benchmarking-coding-agents-databricks-multi-million-line-codebase). Failed attempts are included in the spend, so a model that fails expensively pays for it.
-- **Agent / Codex:** the CLI records tokens but **not** dollar cost, so GPT-5.5 agent cost is shown as "—".
+- **Agent / Codex:** the CLI records tokens but not dollars, so the harness computes cost from token counts at OpenAI's list prices (`src/agents/pricing.py`, with source URL and as-of date). Cached input is billed at the cached rate and reasoning tokens are billed as output. Runs before this was added (the April GPT-5.5 skilled run) show "—".
 - **One-shot / classic:** no token or cost data is recorded.
 
 ### Statistical Rigor
@@ -129,6 +139,6 @@ For reliable Pass@k evaluation, Q-HumanEval (164 problems) requires at least 50 
 
 ---
 
-**Last Updated:** October 1, 2026 | **Version:** 2.0.0
+**Last Updated:** October 2, 2026 | **Version:** 2.0.0
 
 *Want to submit your model? Check out our [submission guide](submission_guide.md) for details.*
