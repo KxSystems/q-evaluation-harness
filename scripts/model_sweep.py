@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Clean-room (--no-skills) q-humaneval sweep over several Claude models.
+"""Clean-room (--no-skills) q-humaneval sweep over several models of one backend.
 
 Generalisation of scripts/opus5_ab.py (branch harness-abort-detection-tooling):
 same abort detection, pidfile lock and cap-aware resume, but one ledger per
@@ -11,6 +11,7 @@ where it left off, so a fresh Claude session (or a human) can resume with no
 context:
 
     python3 scripts/model_sweep.py
+    SWEEP_BACKEND=codex SWEEP_MODELS=gpt-5.5,gpt-6-sol python3 scripts/model_sweep.py
 
 Also runs scripts/reap_runaway_q.py for its lifetime (runaway agent self-tests
 starve and kill other agents — see that script's docstring).
@@ -28,6 +29,7 @@ os.chdir(REPO)
 MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-5"]
 if os.environ.get("SWEEP_MODELS"):
     MODELS = os.environ["SWEEP_MODELS"].split(",")
+BACKEND = os.environ.get("SWEEP_BACKEND", "claude-code")
 ARM_ARGS = ["--no-skills"]
 BASE = os.environ.get("SWEEP_BASE", "outputs/sweep")
 ALL_IDS = [json.loads(l)["task_id"] for l in open("datasets/q_humaneval.jsonl")]
@@ -60,6 +62,42 @@ def save_state(st):
     tmp = p + ".tmp"
     json.dump(st, open(tmp, "w"), indent=2)
     os.replace(tmp, p)
+
+
+CODEX_CAP_MARKERS = ("usage limit", "usage_limit", "rate limit", "rate_limit", "429")
+CODEX_CAP_FALLBACK_S = 3600
+
+
+def scan_aborted_codex(run_dir):
+    """Codex flavour of scan_aborted.
+
+    A fair attempt ends in a turn.completed event. An error / turn.failed event
+    mentioning a usage or rate limit means the account is capped; Codex does not
+    reliably report when the window reopens, so pause CODEX_CAP_FALLBACK_S
+    unless the event carries resets_in_seconds.
+    """
+    capped, reset = set(), 0
+    for ev in glob.glob(os.path.join(run_dir, "workspaces", "task_*", "events.jsonl")):
+        tid = int(ev.split("task_")[-1].split("/")[0])
+        completed = False
+        for line in open(ev, errors="ignore"):
+            try:
+                e = json.loads(line)
+            except Exception:
+                continue
+            t = e.get("type")
+            if t == "turn.completed":
+                completed = True
+            elif t in ("error", "turn.failed"):
+                blob = json.dumps(e).lower()
+                if any(m in blob for m in CODEX_CAP_MARKERS):
+                    capped.add(tid)
+                    secs = (e.get("error") or {}).get("resets_in_seconds") \
+                        or e.get("resets_in_seconds") or CODEX_CAP_FALLBACK_S
+                    reset = max(reset, int(time.time() + secs))
+        if not completed:
+            capped.add(tid)
+    return capped, reset
 
 
 def scan_aborted(run_dir):
@@ -99,7 +137,11 @@ def scan_aborted(run_dir):
 
 
 def served_models(run_dir):
-    """Every model id seen in init events and assistant messages of a run."""
+    """Every model id seen in init events and assistant messages of a run.
+
+    Claude Code only; codex --json events carry no model id, and Codex errors
+    on an unknown id instead of silently remapping it.
+    """
     seen = set()
     for ev in glob.glob(os.path.join(run_dir, "workspaces", "task_*", "events.jsonl")):
         for line in open(ev, errors="ignore"):
@@ -128,7 +170,7 @@ def run_batch(model, ids):
     out = os.path.join(BASE, model)
     before = set(glob.glob(os.path.join(out, "agent_*")))
     cmd = ["poetry", "run", "qeval", "agent-run", "q-humaneval",
-           "--backend", "claude-code", "--model", model, *ARM_ARGS,
+           "--backend", BACKEND, "--model", model, *ARM_ARGS,
            "--problem-ids", *map(str, ids),
            "--timeout", "600", "--concurrency", "4",
            "--save-events", "--keep-workspaces", "-o", out]
@@ -142,7 +184,7 @@ def run_batch(model, ids):
         return set(), set(), set(ids), 0, "", 0.0
     run_dir = max(new, key=os.path.getmtime)
 
-    wrong = served_models(run_dir) - {model}
+    wrong = served_models(run_dir) - {model} if BACKEND == "claude-code" else set()
     if wrong:
         sys.exit(f"!! {model}: run {run_dir} was served by {sorted(wrong)} — "
                  f"model remap/fallback. Stopping; nothing from this run is scored.")
@@ -152,7 +194,8 @@ def run_batch(model, ids):
     res_blob = json.load(open(os.path.join(run_dir, "results.json")))
     res = {r["task_id"]: r["passed"] for r in res_blob["results"]}
 
-    capped, reset = scan_aborted(run_dir)
+    scan = scan_aborted_codex if BACKEND == "codex" else scan_aborted
+    capped, reset = scan(run_dir)
     passed, failed, pending = set(), set(), set()
     for t in ids:
         s = sols.get(t, {})

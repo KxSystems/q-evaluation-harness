@@ -34,11 +34,15 @@ class TokenPrices:
     as_of: str
 
 
-# Short-context tier (<=272K input tokens per request). The pricing page lists
-# no long-context tier for these models.
+# Short-context tier (<=272K input tokens per request). 5.6/6.x models also have
+# a long-context tier (2x input) that agent turns are not expected to reach.
 OPENAI_PRICES: Dict[str, TokenPrices] = {
     "gpt-5.5": TokenPrices(5.00, 0.50, 30.00, OPENAI_PRICING_URL, "2026-10-01"),
     "gpt-5.4": TokenPrices(2.50, 0.25, 15.00, OPENAI_PRICING_URL, "2026-10-01"),
+    # 5.6 Sol after the 2026-07-30 price cut; launch price was 5.00 / 30.00.
+    "gpt-5.6-sol": TokenPrices(4.00, 0.40, 20.00, OPENAI_PRICING_URL, "2026-10-02"),
+    "gpt-6-sol": TokenPrices(2.00, 0.20, 10.00, OPENAI_PRICING_URL, "2026-10-02"),
+    "gpt-6-luna": TokenPrices(0.10, 0.01, 0.50, OPENAI_PRICING_URL, "2026-10-02"),
 }
 
 _warned: set = set()
