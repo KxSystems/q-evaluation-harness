@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .base import AgentBackend, AgentResult
+from .pricing import openai_cost_usd
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ class CodexBackend(AgentBackend):
         self.reasoning_effort = reasoning_effort
 
     cli_name = "codex"
+    cost_source = "list_price"
 
     @property
     def name(self) -> str:
@@ -110,14 +112,19 @@ class CodexBackend(AgentBackend):
             self.model,
             "-c",
             f'model_reasoning_effort="{self.reasoning_effort}"',
-            "--full-auto",
+            # codex-cli 0.159 removed --full-auto; it was shorthand for this
+            # sandbox (run anything, write only inside the workspace).
+            "--sandbox",
+            "workspace-write",
             "--json",
             "--ephemeral",
             "--skip-git-repo-check",
             "--cd",
             str(workspace),
+            # -o is --output-last-message: the agent's final message as plain
+            # text. It is not structured output; usage comes from the events.
             "-o",
-            str(workspace / "result.json"),
+            str(workspace / "last_message.txt"),
         ]
 
         cmd.extend(self.extra_args)
@@ -217,6 +224,7 @@ class CodexBackend(AgentBackend):
                 num_turns=metadata.get("num_turns"),
                 input_tokens=metadata.get("input_tokens"),
                 output_tokens=metadata.get("output_tokens"),
+                cached_input_tokens=metadata.get("cached_input_tokens"),
                 cost_usd=metadata.get("cost_usd"),
                 raw_output=stdout,
                 error=stderr if process.returncode != 0 else None,
@@ -231,14 +239,29 @@ class CodexBackend(AgentBackend):
             logger.warning(
                 f"Codex timed out for {task_id_str} after {wall_time:.1f}s"
             )
+            # The spend still happened: recover usage from the partial event
+            # stream when it was saved to disk.
+            metadata = {}
+            if events_fh:
+                events_fh.close()
+            if events_path.exists():
+                metadata = self._parse_output(
+                    events_path.read_text(errors="replace"), workspace
+                )
             return AgentResult(
                 task_id=task_id,
                 success=False,
                 solution_code="",
                 wall_time_seconds=wall_time,
+                num_turns=metadata.get("num_turns"),
+                input_tokens=metadata.get("input_tokens"),
+                output_tokens=metadata.get("output_tokens"),
+                cached_input_tokens=metadata.get("cached_input_tokens"),
+                cost_usd=metadata.get("cost_usd"),
                 error=f"Timed out after {self.timeout}s",
                 workspace_path=str(workspace),
                 agent_version=self.cli_version,
+                metadata=metadata,
             )
         finally:
             if events_fh and not events_fh.closed:
@@ -249,25 +272,15 @@ class CodexBackend(AgentBackend):
     def _parse_output(
         self, stdout: str, workspace: Path
     ) -> Dict[str, Any]:
-        """Parse Codex output: JSONL events from stdout + result.json."""
+        """Parse Codex JSONL events for turn count, token usage and cost.
+
+        `codex exec --json` reports usage only in `turn.completed` events and
+        never reports dollars, so cost is computed from list prices
+        (src/agents/pricing.py). One exec call is one turn, so its usage is
+        the whole task; summing handles any multi-turn stream.
+        """
         metadata: Dict[str, Any] = {}
 
-        # Try result.json first (most structured)
-        result_file = workspace / "result.json"
-        if result_file.exists():
-            try:
-                data = json.loads(result_file.read_text())
-                metadata.update(
-                    {
-                        "input_tokens": data.get("input_tokens"),
-                        "output_tokens": data.get("output_tokens"),
-                        "cost_usd": data.get("cost_usd"),
-                    }
-                )
-            except (json.JSONDecodeError, TypeError):
-                logger.debug("Failed to parse result.json")
-
-        # Parse JSONL events from stdout for turn count and token usage.
         # Modern codex emits per-step events as `item.completed` with an
         # `item.type` of `command_execution`, `agent_message`, or
         # `file_change`. Each represents one discrete agent action and
@@ -275,8 +288,14 @@ class CodexBackend(AgentBackend):
         # `function_call` / `action` events, which we still match for
         # backwards compatibility.
         num_turns = 0
-        total_input_tokens = 0
-        total_output_tokens = 0
+        usage_totals = {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0,
+        }
+        saw_usage = False
         modern_action_item_types = {
             "command_execution",
             "agent_message",
@@ -303,21 +322,22 @@ class CodexBackend(AgentBackend):
                 ):
                     num_turns += 1
                 if event_type == "turn.completed":
-                    usage = event.get("usage", {})
-                    total_input_tokens += usage.get(
-                        "input_tokens", 0
-                    )
-                    total_output_tokens += usage.get(
-                        "output_tokens", 0
-                    )
-            except (json.JSONDecodeError, TypeError):
+                    usage = event.get("usage") or {}
+                    saw_usage = True
+                    for key in usage_totals:
+                        usage_totals[key] += usage.get(key) or 0
+            except (json.JSONDecodeError, TypeError, AttributeError):
                 continue
 
         if num_turns > 0:
             metadata["num_turns"] = num_turns
-        if total_input_tokens > 0:
-            metadata["input_tokens"] = total_input_tokens
-        if total_output_tokens > 0:
-            metadata["output_tokens"] = total_output_tokens
+        if saw_usage:
+            metadata.update(usage_totals)
+            metadata["cost_usd"] = openai_cost_usd(
+                self.model,
+                usage_totals["input_tokens"],
+                usage_totals["cached_input_tokens"],
+                usage_totals["output_tokens"],
+            )
 
         return metadata

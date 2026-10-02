@@ -48,6 +48,7 @@ Repeat steps 2-3 until the solution loads cleanly and returns correct values.
 
 class ClaudeCodeBackend(AgentBackend):
     cli_name = "claude"
+    cost_source = "cli_reported"
 
     """Backend that invokes Claude Code CLI in headless mode.
 
