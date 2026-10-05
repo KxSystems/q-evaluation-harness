@@ -16,7 +16,7 @@ The idea comes from Databricks. In [Benchmarking Coding Agents on Databricks' Mu
 
 ![Cost vs. performance on q-humaneval](../img/cost_vs_quality.png)
 
-The chart follows the Databricks layout: cost per task across the bottom (total spend divided by tasks attempted, explained below), pass rate up the side, and a red line marking the Pareto frontier, the models for which nothing else is both cheaper and better. Three models sit on it today: Sonnet 5.5, Opus 5.5 and Fable 5.1. Every other model is matched or beaten on score by one of them, at a lower cost. Claude models are in yellow and OpenAI models, run through Codex, in blue.
+The chart follows the Databricks layout: cost per task across the bottom (total spend divided by tasks attempted, explained below), pass rate up the side, and a red line marking the Pareto frontier, the models for which nothing else is both cheaper and better. Three models sit on it today: Sonnet 5.5, Opus 5.5 and Fable 5.1. Every other model is matched or beaten on score by one of them, at a lower cost. Squares mark runs with the q-kdb skill; circles are clean-room runs.
 
 The dotted line is the frontier as it stood before the 5.5 releases, when Sonnet 5 and Opus 5 were the best options. Both ends of it moved. Opus kept its score and cut its cost per task by 65%: the same 97.6% that cost $0.242 with Opus 5 costs $0.085 with Opus 5.5. Sonnet moved up and to the left at once, gaining almost five points while its cost per task fell 60%, from $0.121 to $0.048.
 
