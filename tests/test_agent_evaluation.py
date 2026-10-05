@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.agents.base import AgentBackend, AgentResult
+from src.agents.base import AgentBackend, AgentResult, parse_cli_version
 from src.agents.claude_code import ClaudeCodeBackend
 from src.agents.codex import CodexBackend
 from src.agents.factory import create_agent_backend, list_agent_backends
@@ -324,21 +324,32 @@ class TestCodexBackend:
         yield workspace
         shutil.rmtree(temp)
 
-    @pytest.mark.asyncio
-    async def test_invoke_success(
-        self, backend: CodexBackend, temp_workspace: Path
-    ) -> None:
-        # Codex writes result.json
-        (temp_workspace / "result.json").write_text(
-            json.dumps({"input_tokens": 2000, "output_tokens": 500})
-        )
+    # Shape of a real codex-cli 0.159.3 `exec --json` stream (task 0, gpt-5.5).
+    CODEX_EVENTS = [
+        {"type": "thread.started", "thread_id": "t"},
+        {"type": "turn.started"},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": "ok"}},
+        {"type": "item.completed", "item": {"type": "command_execution"}},
+        {"type": "item.completed", "item": {"type": "file_change"}},
+        {"type": "item.completed", "item": {"type": "reasoning"}},
+        {
+            "type": "turn.completed",
+            "usage": {
+                "input_tokens": 133147,
+                "cached_input_tokens": 112640,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 3083,
+                "reasoning_output_tokens": 1046,
+            },
+        },
+    ]
 
-        jsonl_events = "\n".join(
-            [
-                json.dumps({"type": "turn.completed", "turn": 1}),
-                json.dumps({"type": "turn.completed", "turn": 2}),
-            ]
-        )
+    @pytest.mark.asyncio
+    async def test_invoke_success(self, temp_workspace: Path) -> None:
+        backend = CodexBackend(model="gpt-5.5", timeout=30.0)
+        # -o writes the last message as plain text; it must not break parsing.
+        (temp_workspace / "last_message.txt").write_text("Implemented solution.q")
+        jsonl_events = "\n".join(json.dumps(e) for e in self.CODEX_EVENTS)
 
         mock_process = AsyncMock()
         mock_process.communicate = AsyncMock(
@@ -350,8 +361,26 @@ class TestCodexBackend:
             result = await backend.invoke("Write the Q function", temp_workspace)
 
         assert result.success is True
-        assert result.num_turns == 2
-        assert result.input_tokens == 2000
+        assert result.num_turns == 3  # reasoning items are not actions
+        assert result.input_tokens == 133147
+        assert result.cached_input_tokens == 112640
+        assert result.output_tokens == 3083
+        # (133147-112640)*5 + 112640*0.50 + 3083*30, per 1M tokens
+        assert result.cost_usd == pytest.approx(0.251345)
+        assert result.metadata["reasoning_output_tokens"] == 1046
+
+    def test_unknown_model_has_no_cost(self, backend: CodexBackend) -> None:
+        events = "\n".join(json.dumps(e) for e in self.CODEX_EVENTS)
+        metadata = backend._parse_output(events, Path("."))
+        assert metadata["input_tokens"] == 133147
+        assert metadata["cost_usd"] is None  # gpt-5.3-codex is not priced
+
+    def test_no_usage_event_means_no_tokens(self, backend: CodexBackend) -> None:
+        metadata = backend._parse_output(
+            json.dumps({"type": "turn.started"}), Path(".")
+        )
+        assert "input_tokens" not in metadata
+        assert "cost_usd" not in metadata
 
     @pytest.mark.asyncio
     async def test_invoke_builds_correct_command(
@@ -371,7 +400,9 @@ class TestCodexBackend:
         assert "exec" in call_args
         assert "--model" in call_args
         assert "gpt-5.3-codex" in call_args
-        assert "--full-auto" in call_args
+        assert "--full-auto" not in call_args  # removed in codex-cli 0.159
+        i = call_args.index("--sandbox")
+        assert call_args[i + 1] == "workspace-write"
 
 
 # --- Agent Metrics Tests ---
@@ -473,3 +504,110 @@ class TestBuildAgentPrompt:
         prompt = _build_agent_prompt(problem, MockTemplate())
         assert "solution.q" in prompt
         assert "my_func" in prompt
+
+
+# --- Agent CLI Version Tests ---
+
+
+class TestAgentVersion:
+    """The agent CLI version is recorded per task and per run."""
+
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("2.1.286 (Claude Code)\n", "2.1.286"),
+            ("codex-cli 0.48.0", "0.48.0"),
+            ("1.0.0-beta.2", "1.0.0-beta.2"),
+            ("dev build\n", "dev build"),
+            ("", None),
+        ],
+    )
+    def test_parse_cli_version(self, text: str, expected: str) -> None:
+        assert parse_cli_version(text) == expected
+
+    def test_probe_version_runs_once(self) -> None:
+        backend = ClaudeCodeBackend(model="opus")
+        completed = MagicMock(stdout="2.1.286 (Claude Code)\n", stderr="")
+        with patch("src.agents.base.subprocess.run", return_value=completed) as run:
+            assert backend.probe_version() == "2.1.286"
+            assert backend.probe_version() == "2.1.286"
+        run.assert_called_once()
+        assert run.call_args.args[0] == ["claude", "--version"]
+
+    def test_probe_version_missing_cli(self) -> None:
+        backend = CodexBackend(model="gpt-5.5")
+        with patch("src.agents.base.subprocess.run", side_effect=FileNotFoundError):
+            assert backend.probe_version() is None
+
+    def test_stream_json_reads_init_version(self) -> None:
+        backend = ClaudeCodeBackend(model="opus", save_events=True)
+        events = "\n".join(
+            json.dumps(e)
+            for e in [
+                {"type": "system", "subtype": "init", "claude_code_version": "2.1.290"},
+                {"type": "result", "num_turns": 2, "usage": {}, "total_cost_usd": 0.1},
+            ]
+        )
+        assert backend._parse_stream_json(events)["agent_version"] == "2.1.290"
+
+    def test_metrics_record_versions(self) -> None:
+        from src.agents.runner import _calculate_agent_metrics
+
+        backend = create_agent_backend("claude-code", model="opus")
+        backend.cli_version = "2.1.286"
+        agent_results = [
+            AgentResult(task_id=i, success=True, solution_code="f:{x}",
+                        wall_time_seconds=1.0, agent_version=v)
+            for i, v in enumerate(["2.1.286", "2.1.290", None])
+        ]
+        execution_results = [
+            {"task_id": i, "passed": True, "agent_wall_time": 1.0} for i in range(3)
+        ]
+        summary = _calculate_agent_metrics(
+            execution_results, agent_results, backend, "q-humaneval"
+        )
+        assert summary["agent_cli_version"] == "2.1.286"
+        assert summary["agent_versions_seen"] == ["2.1.286", "2.1.290"]
+
+
+class TestClaudeCodeIsolation:
+    """Agents must not inherit the operator's Claude Code auto-memory."""
+
+    @pytest.mark.asyncio
+    async def test_auto_memory_disabled(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "task_0"
+        workspace.mkdir()
+        backend = ClaudeCodeBackend(model="opus", timeout=30.0)
+        mock_process = AsyncMock()
+        mock_process.communicate = AsyncMock(return_value=(b"{}", b""))
+        mock_process.returncode = 0
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process) as ex:
+            await backend.invoke("Write function", workspace)
+        assert ex.call_args.kwargs["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+# --- Pricing Tests ---
+
+
+class TestPricing:
+    """List-price cost for backends whose CLI reports only tokens."""
+
+    def test_openai_cost_formula(self) -> None:
+        from src.agents.pricing import openai_cost_usd
+
+        # 1M uncached in, 1M cached in, 1M out at gpt-5.5 list prices
+        cost = openai_cost_usd("gpt-5.5", 2_000_000, 1_000_000, 1_000_000)
+        assert cost == pytest.approx(5.00 + 0.50 + 30.00)
+
+    def test_cached_never_exceeds_input(self) -> None:
+        from src.agents.pricing import openai_cost_usd
+
+        cost = openai_cost_usd("gpt-5.4", 100, 500, 0)
+        assert cost == pytest.approx(100 * 0.25 / 1_000_000)
+
+    def test_unknown_model_is_none(self) -> None:
+        from src.agents.pricing import openai_cost_usd
+
+        assert openai_cost_usd("gpt-9-imaginary", 1000, 0, 1000) is None
+
+    def test_cost_source_per_backend(self) -> None:
+        assert ClaudeCodeBackend(model="opus").cost_source == "cli_reported"
+        assert CodexBackend(model="gpt-5.5").cost_source == "list_price"
