@@ -19,7 +19,6 @@ Usage: poetry run python scripts/plot_cost_vs_quality.py
 import os
 
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 N = 164
@@ -47,7 +46,6 @@ ROWS = [
 ]
 
 NEW = {"Fable 5.1", "Opus 5.5", "Sonnet 5.5", "GPT-5.6 Sol", "GPT-6 Sol"}
-GPT = {"GPT-5.5", "GPT-5.6 Sol", "GPT-6 Sol"}
 # model whose clean-room -> skilled jump gets an arrow
 SKILL_ARROW = "GPT-6 Sol"
 
@@ -109,29 +107,16 @@ def draw():
     front = pareto(pts)
     px, py = zip(*prior)
     fx, fy = zip(*front)
-    ax.plot(px, py, color=RED, lw=2, ls=(0, (1, 2.2)), alpha=0.85, zorder=1)
+    ax.plot(px, py, color=RED, lw=1.2, ls=(0, (1, 2.2)), alpha=0.7, zorder=1)
     ax.annotate("PREVIOUS FRONTIER", ((px[0] + px[-1]) / 2, (py[0] + py[-1]) / 2),
                 xytext=(10, -6), textcoords="offset points", fontsize=7.5,
                 color=MUTED, **BOLD)
-    ax.plot(fx, fy, color=RED, lw=2.6, solid_capstyle="round", zorder=2)
+    ax.plot(fx, fy, color=RED, lw=1.3, alpha=0.85, solid_capstyle="round", zorder=2)
     # label the longest frontier segment, where there is room under the line
     k = max(range(len(fx) - 1), key=lambda i: fx[i + 1] - fx[i])
     ax.annotate("CURRENT FRONTIER", ((fx[k] + fx[k + 1]) / 2, (fy[k] + fy[k + 1]) / 2),
                 xytext=(0, -13), textcoords="offset points", ha="center", fontsize=7.5,
                 color=RED, **BOLD)
-
-    # the shift: the previous frontier's best score, and the cheapest current
-    # model that matches it
-    top = max(py)
-    x_old = min(x for x, y in prior if y == top)
-    x_new = min(x for x, y in pts if y >= top)
-    ay = top + 0.9
-    ax.annotate("", xy=(x_new + 0.007, ay), xytext=(x_old - 0.007, ay),
-                arrowprops=dict(arrowstyle="-|>,head_length=0.5,head_width=0.25",
-                                color=MUTED, lw=1.2, shrinkA=0, shrinkB=0))
-    ax.annotate(f"{1 - x_new / x_old:.0%} LOWER COST, SAME SCORE",
-                ((x_old + x_new) / 2, ay), xytext=(0, 7), textcoords="offset points",
-                ha="center", fontsize=8, color=INK2, **BOLD)
 
     # the skill's effect on one model: clean-room point -> skilled point
     (c0, y0), (c1, y1) = [(x, y) for (name, _, _, _), (x, y) in zip(ROWS, pts)
@@ -145,7 +130,7 @@ def draw():
 
     for (name, skill, p, cost), (x, y) in zip(ROWS, pts):
         ax.scatter(x, y, s=80, marker="s" if skill else "o",
-                   color=BLUE if name in GPT else YELLOW,
+                   color=YELLOW,
                    edgecolors=BG, linewidths=2, zorder=4)
         dx, dy = OFFSETS[(name, skill)]
         ax.annotate(name + (" + skill" if skill else ""), (x, y), xytext=(dx, dy),
@@ -165,17 +150,6 @@ def draw():
     for s in ax.spines.values():
         s.set_visible(False)
     ax.tick_params(colors=INK2, length=0, labelsize=8.5)
-
-    legend = [
-        Line2D([], [], marker="o", ls="", ms=8, color=YELLOW, label="Claude (Claude Code)"),
-        Line2D([], [], marker="o", ls="", ms=8, color=BLUE, label="GPT (Codex)"),
-        Line2D([], [], marker="o", ls="", ms=8, color=INK2, label="Clean room"),
-        Line2D([], [], marker="s", ls="", ms=8, color=INK2, label="With q-kdb skill"),
-    ]
-    leg = ax.legend(handles=legend, loc="center right", frameon=False, fontsize=8.5,
-                    handletextpad=0.4, labelspacing=0.6)
-    for txt in leg.get_texts():
-        txt.set_color(INK2)
 
     fig.text(0.035, 0.955, "Q-HUMANEVAL  ·  AGENT MODE", fontsize=8.5,
              color=YELLOW, va="top", **BOLD)
