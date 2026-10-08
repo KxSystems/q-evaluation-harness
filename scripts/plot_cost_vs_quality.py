@@ -4,8 +4,9 @@
 Cost per task = total API-equivalent spend / tasks attempted (164), i.e. the
 per-attempt metric Databricks reports in "Benchmarking Coding Agents on
 Databricks' Multi-Million Line Codebase" (July 2026). List prices including
-cache reads/writes, as reported by the Claude Code CLI (Codex: computed from
-tokens, src/agents/pricing.py); only each task's final attempt counts
+cache reads/writes, computed from token counts at published prices
+(src/agents/pricing.py; the Claude Code CLI mis-prices Sonnet 5.5 cache reads
+and does not know Haiku 5.5); only each task's final attempt counts
 (harness-abort re-runs excluded).
 
 Styled after kx.com: dark panel, yellow marks, red frontier, heavy
@@ -16,6 +17,7 @@ Writes docs/img/cost_vs_quality.png.
 
 Usage: poetry run python scripts/plot_cost_vs_quality.py
 """
+import math
 import os
 
 import matplotlib.pyplot as plt
@@ -29,11 +31,15 @@ N = 164
 # final attempts only, $41.35). Opus 5 skill arm
 # counts final attempts only ($60.82). Opus 4.8 as published in #9 (run data
 # not in this checkout; --timeout 300). GPT rows: outputs/sweep_gpt{,_skilled}
-# (Codex 0.160.0, 2026-10-02).
+# (Codex 0.160.0, 2026-10-02). Haiku 5.5 rows: outputs/sweep_haiku*
+# (Claude Code 2.1.287, 2026-10-08), as is the skilled Sonnet 5.5 row
+# (outputs/sweep_sonnet55_skilled); Haiku skilled arms are default effort unless the
+# name says otherwise.
 ROWS = [
     ("Fable 5.1",  False, 161, 41.35),
     ("Opus 5.5",   False, 160, 13.97),
-    ("Sonnet 5.5", False, 158, 7.82),
+    ("Sonnet 5.5", False, 158, 6.78),
+    ("Sonnet 5.5", True,  157, 17.91),
     ("Sonnet 5",   False, 150, 19.87),
     ("Opus 5",     False, 160, 39.70),
     ("Opus 5",     True,  157, 60.82),
@@ -43,9 +49,14 @@ ROWS = [
     ("GPT-5.6 Sol", False, 147, 24.59),
     ("GPT-6 Sol",   False, 150, 13.05),
     ("GPT-6 Sol",   True,  156, 14.45),
+    ("Haiku 5.5",   False, 154, 1.25),
+    ("Haiku 5.5",   True,  157, 1.51),
+    ("Haiku 5.5, medium", True, 159, 1.33),
+    ("Haiku 5.5, high",   True, 158, 1.49),
 ]
 
-NEW = {"Fable 5.1", "Opus 5.5", "Sonnet 5.5", "GPT-5.6 Sol", "GPT-6 Sol"}
+NEW = {"Fable 5.1", "Opus 5.5", "Sonnet 5.5", "GPT-5.6 Sol", "GPT-6 Sol",
+       "Haiku 5.5", "Haiku 5.5, medium", "Haiku 5.5, high"}
 # model whose clean-room -> skilled jump gets an arrow
 SKILL_ARROW = "GPT-6 Sol"
 
@@ -57,6 +68,8 @@ OFFSETS = {
     ("Opus 4.8", True): (11, -4), ("Fable 5.1", False): (11, 0),
     ("GPT-5.5", False): (11, -4), ("GPT-5.6 Sol", False): (11, -4),
     ("GPT-6 Sol", False): (-11, -4), ("GPT-6 Sol", True): (11, -4),
+    ("Sonnet 5.5", True): (11, 3), ("Haiku 5.5", False): (11, -4), ("Haiku 5.5", True): (11, -4),
+    ("Haiku 5.5, medium", True): (11, 11), ("Haiku 5.5, high", True): (11, 0),
 }
 
 # kx.com palette (from the site's CSS custom properties)
@@ -108,14 +121,14 @@ def draw():
     px, py = zip(*prior)
     fx, fy = zip(*front)
     ax.plot(px, py, color=RED, lw=1.2, ls=(0, (1, 2.2)), alpha=0.7, zorder=1)
-    ax.annotate("PREVIOUS FRONTIER", ((px[0] + px[-1]) / 2, (py[0] + py[-1]) / 2),
+    ax.annotate("PREVIOUS FRONTIER", (math.sqrt(px[0] * px[-1]), (py[0] + py[-1]) / 2),
                 xytext=(10, -6), textcoords="offset points", fontsize=7.5,
                 color=MUTED, **BOLD)
     ax.plot(fx, fy, color=RED, lw=1.3, alpha=0.85, solid_capstyle="round", zorder=2)
-    # label the longest frontier segment, where there is room under the line
-    k = max(range(len(fx) - 1), key=lambda i: fx[i + 1] - fx[i])
-    ax.annotate("CURRENT FRONTIER", ((fx[k] + fx[k + 1]) / 2, (fy[k] + fy[k + 1]) / 2),
-                xytext=(0, -13), textcoords="offset points", ha="center", fontsize=7.5,
+    # label the longest frontier segment, where there is room above the line
+    k = max(range(len(fx) - 1), key=lambda i: math.log(fx[i + 1] / fx[i]))
+    ax.annotate("CURRENT FRONTIER", (fx[k] ** 0.3 * fx[k + 1] ** 0.7, fy[k] + 0.7 * (fy[k + 1] - fy[k])),
+                xytext=(0, 10), textcoords="offset points", ha="center", fontsize=7.5,
                 color=RED, **BOLD)
 
     # the skill's effect on one model: clean-room point -> skilled point
@@ -138,11 +151,17 @@ def draw():
                     ha="right" if dx < 0 else "center" if dx == 0 else "left",
                     va="center", fontsize=9, color=INK)
 
-    ax.set_xlim(0, 0.42)
+    # Log axis: costs now span >40x (Haiku 5.5 ~$0.008 to Opus 5 + skill ~$0.37),
+    # and on a linear axis the Haiku runs collapse onto the y axis.
+    ax.set_xscale("log")
+    ax.set_xlim(0.0055, 0.8)
     ax.set_ylim(85, 100)
+    ticks = [0.01, 0.02, 0.05, 0.10, 0.20, 0.50]
+    ax.set_xticks(ticks)
+    ax.xaxis.set_minor_locator(plt.NullLocator())
     ax.xaxis.set_major_formatter(lambda v, _: f"${v:.2f}")
     ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0f}%")
-    ax.set_xlabel("COST PER TASK  (USD, LIST PRICE INCL. CACHING)", color=INK2,
+    ax.set_xlabel("COST PER TASK  (USD, LIST PRICE INCL. CACHING, LOG SCALE)", color=INK2,
                   fontsize=8, labelpad=8, **BOLD)
     ax.set_ylabel("PASS@1", color=INK2, fontsize=8, labelpad=8, **BOLD)
     ax.grid(True, color=GRID, lw=0.8)
@@ -153,7 +172,7 @@ def draw():
 
     fig.text(0.035, 0.955, "Q-HUMANEVAL  ·  AGENT MODE", fontsize=8.5,
              color=YELLOW, va="top", **BOLD)
-    headline(fig, 0.035, 0.915, [("SAME SCORE, ", INK), ("A THIRD OF THE PRICE", BLUE)],
+    headline(fig, 0.035, 0.915, [("SAME SCORE, ", INK), ("A FIFTH OF THE PRICE", BLUE)],
              fontsize=17, va="top", **BOLD)
     fig.text(0.035, 0.845, "Claude and GPT models on 164 q tasks. Cost per task = "
              "total spend ÷ tasks attempted, final attempts only.",
