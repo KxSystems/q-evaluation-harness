@@ -1,11 +1,11 @@
 {
   "total_solutions": 164,
-  "passed_solutions": 158,
+  "passed_solutions": 157,
   "errored_solutions": 0,
   "scored_solutions": 164,
-  "pass_rate": 0.9634146341463414,
+  "pass_rate": 0.9573170731707317,
   "total_problems": 164,
-  "pass_at_1": 0.9634146341463414,
+  "pass_at_1": 0.9573170731707317,
   "per_problem_results": [
     {
       "task_id": 0,
@@ -50,7 +50,7 @@
     {
       "task_id": 8,
       "num_samples": 1,
-      "num_correct": 0
+      "num_correct": 1
     },
     {
       "task_id": 9,
@@ -260,7 +260,7 @@
     {
       "task_id": 50,
       "num_samples": 1,
-      "num_correct": 0
+      "num_correct": 1
     },
     {
       "task_id": 51,
@@ -415,7 +415,7 @@
     {
       "task_id": 81,
       "num_samples": 1,
-      "num_correct": 1
+      "num_correct": 0
     },
     {
       "task_id": 82,
@@ -460,7 +460,7 @@
     {
       "task_id": 90,
       "num_samples": 1,
-      "num_correct": 1
+      "num_correct": 0
     },
     {
       "task_id": 91,
@@ -470,7 +470,7 @@
     {
       "task_id": 92,
       "num_samples": 1,
-      "num_correct": 1
+      "num_correct": 0
     },
     {
       "task_id": 93,
@@ -590,7 +590,7 @@
     {
       "task_id": 116,
       "num_samples": 1,
-      "num_correct": 1
+      "num_correct": 0
     },
     {
       "task_id": 117,
@@ -720,7 +720,7 @@
     {
       "task_id": 142,
       "num_samples": 1,
-      "num_correct": 0
+      "num_correct": 1
     },
     {
       "task_id": 143,
@@ -740,7 +740,7 @@
     {
       "task_id": 146,
       "num_samples": 1,
-      "num_correct": 0
+      "num_correct": 1
     },
     {
       "task_id": 147,
@@ -810,7 +810,7 @@
     {
       "task_id": 160,
       "num_samples": 1,
-      "num_correct": 1
+      "num_correct": 0
     },
     {
       "task_id": 161,
@@ -830,23 +830,23 @@
   ],
   "evaluation_type": "agent",
   "agent_backend": "claude-code",
-  "agent_model": "claude-sonnet-5-5",
-  "agent_skill": false,
+  "agent_model": "claude-haiku-5-5",
+  "agent_skill": true,
   "agent_effort": null,
   "agent_max_turns": 20,
   "dataset": "q-humaneval",
   "agent_metrics": {
-    "total_wall_time_seconds": 3556.904655915685,
-    "mean_wall_time_seconds": 21.68844302387613,
-    "median_wall_time_seconds": 9.334634833503515,
-    "mean_wall_time_passed": 22.169980165088855,
-    "mean_wall_time_failed": 9.007964971940964,
-    "total_cost_usd": 6.7849,
-    "mean_cost_usd": 0.041371382317073144,
+    "total_wall_time_seconds": 8362.405675413815,
+    "mean_wall_time_seconds": 50.99027850862082,
+    "median_wall_time_seconds": 19.584776062489254,
+    "mean_wall_time_passed": 50.992330155496084,
+    "mean_wall_time_failed": 50.944263000132715,
+    "total_cost_usd": 1.5092,
+    "mean_cost_usd": 0.009202513109756097,
     "cost_basis": "list price from token usage",
-    "cli_reported_cost_usd": 7.8187,
-    "mean_turns": 3.518292682926829,
-    "median_turns": 3.0,
+    "cli_reported_cost_usd": 51.4621,
+    "mean_turns": 7.902439024390244,
+    "median_turns": 7.0,
     "no_solution_count": 0,
     "errored_count": 0
   },
@@ -910,8 +910,8 @@
     {
       "task_id": 8,
       "sample_index": 0,
-      "passed": false,
-      "info": "failed: Test assertion failed: ",
+      "passed": true,
+      "info": "passed",
       "errored": false
     },
     {
@@ -1204,8 +1204,8 @@
     {
       "task_id": 50,
       "sample_index": 0,
-      "passed": false,
-      "info": "failed: Test assertion failed: ",
+      "passed": true,
+      "info": "passed",
       "errored": false
     },
     {
@@ -1421,8 +1421,8 @@
     {
       "task_id": 81,
       "sample_index": 0,
-      "passed": true,
-      "info": "passed",
+      "passed": false,
+      "info": "failed: Test assertion failed: ",
       "errored": false
     },
     {
@@ -1484,8 +1484,8 @@
     {
       "task_id": 90,
       "sample_index": 0,
-      "passed": true,
-      "info": "passed",
+      "passed": false,
+      "info": "failed: Test assertion failed: ",
       "errored": false
     },
     {
@@ -1498,8 +1498,8 @@
     {
       "task_id": 92,
       "sample_index": 0,
-      "passed": true,
-      "info": "passed",
+      "passed": false,
+      "info": "failed: Test assertion failed: This prints if this assert fails 10 (also good for debugging!)",
       "errored": false
     },
     {
@@ -1666,8 +1666,8 @@
     {
       "task_id": 116,
       "sample_index": 0,
-      "passed": true,
-      "info": "passed",
+      "passed": false,
+      "info": "failed: Test assertion failed: ",
       "errored": false
     },
     {
@@ -1848,8 +1848,8 @@
     {
       "task_id": 142,
       "sample_index": 0,
-      "passed": false,
-      "info": "failed: Test assertion failed: ",
+      "passed": true,
+      "info": "passed",
       "errored": false
     },
     {
@@ -1876,8 +1876,8 @@
     {
       "task_id": 146,
       "sample_index": 0,
-      "passed": false,
-      "info": "failed: Test assertion failed: ",
+      "passed": true,
+      "info": "passed",
       "errored": false
     },
     {
@@ -1974,8 +1974,8 @@
     {
       "task_id": 160,
       "sample_index": 0,
-      "passed": true,
-      "info": "passed",
+      "passed": false,
+      "info": "failed: Test execution failed: do_algebra",
       "errored": false
     },
     {

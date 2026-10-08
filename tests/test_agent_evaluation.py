@@ -611,3 +611,40 @@ class TestPricing:
     def test_cost_source_per_backend(self) -> None:
         assert ClaudeCodeBackend(model="opus").cost_source == "cli_reported"
         assert CodexBackend(model="gpt-5.5").cost_source == "list_price"
+
+    def test_claude_cost_formula(self) -> None:
+        from src.agents.pricing import claude_cost_usd
+
+        # 1M each of input, output, cache read and 1h cache write at Sonnet 5.5
+        usage = {
+            "input_tokens": 1_000_000,
+            "output_tokens": 1_000_000,
+            "cache_read_input_tokens": 1_000_000,
+            "cache_creation_input_tokens": 1_000_000,
+            "cache_creation": {"ephemeral_1h_input_tokens": 1_000_000},
+        }
+        assert claude_cost_usd("claude-sonnet-5-5", usage) == pytest.approx(
+            2.00 + 10.00 + 0.10 + 4.00
+        )
+
+    def test_claude_cache_write_defaults_to_1h_tier(self) -> None:
+        from src.agents.pricing import claude_cost_usd
+
+        usage = {"cache_creation_input_tokens": 1_000_000}
+        assert claude_cost_usd("claude-opus-5-5", usage) == pytest.approx(8.00)
+
+    def test_claude_unknown_model_is_none(self) -> None:
+        from src.agents.pricing import claude_cost_usd
+
+        assert claude_cost_usd("claude-imaginary-9", {"input_tokens": 10}) is None
+
+    def test_haiku_55_needs_prompt_length_proof(self) -> None:
+        from src.agents.pricing import claude_cost_usd
+
+        usage = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+        # Totals cannot show per-request prompt length: refuse rather than guess
+        assert claude_cost_usd("claude-haiku-5-5", usage) is None
+        assert claude_cost_usd("claude-haiku-5-5", usage, 100_001) is None
+        assert claude_cost_usd("claude-haiku-5-5", usage, 100_000) == pytest.approx(
+            0.10 + 0.50
+        )
