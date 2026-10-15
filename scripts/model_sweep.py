@@ -34,6 +34,8 @@ BACKEND = os.environ.get("SWEEP_BACKEND", "claude-code")
 SKILL = os.path.expanduser("~/.q-eval/skills/q-kdb")
 ARM = os.environ.get("SWEEP_ARM", "noskill")
 ARM_ARGS = {"noskill": ["--no-skills"], "skilled": ["--skill-dirs", SKILL]}[ARM]
+# e.g. SWEEP_EXTRA_ARGS="--effort=high" -> forwarded to the agent CLI (--extra-args=...)
+ARM_ARGS += [f"--extra-args={a}" for a in os.environ.get("SWEEP_EXTRA_ARGS", "").split()]
 BASE = os.environ.get("SWEEP_BASE", "outputs/sweep")
 ALL_IDS = [json.loads(l)["task_id"] for l in open("datasets/q_humaneval.jsonl")]
 if os.environ.get("SWEEP_IDS"):  # smoke-test subset
