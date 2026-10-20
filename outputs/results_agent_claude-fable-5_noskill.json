@@ -1,13 +1,13 @@
 {
   "total_solutions": 164,
-  "passed_solutions": 156,
+  "passed_solutions": 158,
   "errored_solutions": 0,
   "scored_solutions": 164,
-  "pass_rate": 0.9512195121951219,
+  "pass_rate": 0.9634146341463414,
   "total_problems": 164,
   "execution_method": "sequential",
   "max_workers": 1,
-  "pass_at_1": 0.9512195121951219,
+  "pass_at_1": 0.9634146341463414,
   "per_problem_results": [
     {
       "task_id": 3,
@@ -557,7 +557,7 @@
     {
       "task_id": 109,
       "num_samples": 1,
-      "num_correct": 0
+      "num_correct": 1
     },
     {
       "task_id": 108,
@@ -777,7 +777,7 @@
     {
       "task_id": 151,
       "num_samples": 1,
-      "num_correct": 0
+      "num_correct": 1
     },
     {
       "task_id": 155,
@@ -1597,8 +1597,8 @@
     {
       "task_id": 109,
       "sample_index": 0,
-      "passed": false,
-      "info": "failed: Test assertion failed: ",
+      "passed": true,
+      "info": "passed",
       "errored": false
     },
     {
@@ -1905,8 +1905,8 @@
     {
       "task_id": 151,
       "sample_index": 0,
-      "passed": false,
-      "info": "failed: Test assertion failed: This prints if this assert fails 1 (good for debugging!)",
+      "passed": true,
+      "info": "passed",
       "errored": false
     },
     {

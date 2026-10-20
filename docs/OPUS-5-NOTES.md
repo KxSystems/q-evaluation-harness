@@ -27,7 +27,7 @@ Failed in **both** arms — the genuinely hard four: 12, 81, 116, 162.
 Skilled-only failures: 32, 92, 112.
 
 This replicates the direction of the Fable 5 result (noskill 158/164 beat
-skilled 153/164), now on a run where every task is verified attempted.
+skilled 155/164 on the current grader), now on a run where every task is verified attempted.
 
 ## Caveat on what "skilled" means
 
