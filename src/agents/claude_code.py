@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .base import AgentBackend, AgentResult
 
@@ -47,6 +47,9 @@ Repeat steps 2-3 until the solution loads cleanly and returns correct values.
 
 
 class ClaudeCodeBackend(AgentBackend):
+    cli_name = "claude"
+    cost_source = "cli_reported"
+
     """Backend that invokes Claude Code CLI in headless mode.
 
     Uses `claude -p` with --output-format json for structured output.
@@ -123,6 +126,10 @@ class ClaudeCodeBackend(AgentBackend):
         # Remove CLAUDECODE env var to allow nested invocations
         # (e.g. when the harness is run from within a Claude Code session)
         env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+        # Workspaces live inside this repo, so Claude Code resolves the repo's
+        # project and loads the operator's auto-memory into every agent. That
+        # memory can describe the grader and dataset; agents must never see it.
+        env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
 
         events_path = workspace / "events.jsonl"
         stderr_path = workspace / "events.stderr.log"
@@ -209,6 +216,7 @@ class ClaudeCodeBackend(AgentBackend):
                 raw_output=stdout,
                 error=stderr if process.returncode != 0 else None,
                 workspace_path=str(workspace),
+                agent_version=metadata.get("agent_version") or self.cli_version,
                 metadata=metadata,
             )
 
@@ -226,6 +234,7 @@ class ClaudeCodeBackend(AgentBackend):
                 wall_time_seconds=wall_time,
                 error=f"Timed out after {self.timeout}s",
                 workspace_path=str(workspace),
+                agent_version=self.cli_version,
             )
         finally:
             if events_fh and not events_fh.closed:
@@ -260,6 +269,9 @@ class ClaudeCodeBackend(AgentBackend):
         as the single-shot json format.
         """
         result_event: Dict[str, Any] = {}
+        # The init event names the CLI build that actually ran this task,
+        # which can differ from the probed version if the CLI auto-updated.
+        agent_version: Optional[str] = None
         for line in stdout.strip().split("\n"):
             line = line.strip()
             if not line:
@@ -270,10 +282,16 @@ class ClaudeCodeBackend(AgentBackend):
                 continue
             if event.get("type") == "result":
                 result_event = event
+            elif (
+                event.get("type") == "system"
+                and event.get("subtype") == "init"
+                and event.get("claude_code_version")
+            ):
+                agent_version = event["claude_code_version"]
 
         if not result_event:
             logger.debug("No 'result' event in claude stream-json output")
-            return {"result_text": stdout}
+            return {"result_text": stdout, "agent_version": agent_version}
 
         usage = result_event.get("usage", {})
         return {
@@ -283,4 +301,5 @@ class ClaudeCodeBackend(AgentBackend):
             "output_tokens": usage.get("output_tokens"),
             "cost_usd": result_event.get("total_cost_usd"),
             "result_text": result_event.get("result", ""),
+            "agent_version": agent_version,
         }

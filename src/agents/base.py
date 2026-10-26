@@ -3,12 +3,29 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 import shutil
+import subprocess
 from typing import Any, Dict, List, Optional
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+_VERSION_RE = re.compile(r"\d+\.\d+\.\d+[\w.+-]*")
+
+
+def parse_cli_version(text: str) -> Optional[str]:
+    """Pull a version number out of `<cli> --version` output.
+
+    `claude --version` prints "2.1.286 (Claude Code)"; other CLIs prefix the
+    name. Falls back to the first non-empty line when no x.y.z is present.
+    """
+    match = _VERSION_RE.search(text or "")
+    if match:
+        return match.group(0)
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    return lines[0] if lines else None
 
 
 @dataclass
@@ -22,10 +39,16 @@ class AgentResult:
     num_turns: Optional[int] = None
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
+    # Subset of input_tokens served from the prompt cache (Codex only; Claude
+    # Code's input_tokens already exclude cached input).
+    cached_input_tokens: Optional[int] = None
     cost_usd: Optional[float] = None
     raw_output: Optional[str] = None
     error: Optional[str] = None
     workspace_path: Optional[str] = None
+    # Version of the agent CLI that produced this result. Results are only
+    # comparable across runs when the harness version is known.
+    agent_version: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -35,6 +58,12 @@ class AgentBackend(ABC):
     Each backend wraps a specific agent CLI (Claude Code, Codex, etc.)
     and handles workspace scaffolding, CLI invocation, and output parsing.
     """
+
+    # Executable used for `--version` probing; set by each backend.
+    cli_name: Optional[str] = None
+    # Where cost_usd comes from: "cli_reported" when the agent CLI reports a
+    # dollar figure, "list_price" when computed from tokens (src/agents/pricing.py).
+    cost_source: Optional[str] = None
 
     def __init__(
         self,
@@ -59,6 +88,26 @@ class AgentBackend(ABC):
         self.no_skills = no_skills
         self.skill_dirs = [] if no_skills else (skill_dirs or [])
         self.save_events = save_events
+        self.cli_version: Optional[str] = None  # set by probe_version()
+
+    def probe_version(self) -> Optional[str]:
+        """Run `<cli> --version` once per run and cache the result.
+
+        Agent CLIs auto-update, so the version is a run property worth
+        recording: cost and turn counts change between releases.
+        """
+        if self.cli_version is None and self.cli_name:
+            try:
+                out = subprocess.run(
+                    [self.cli_name, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                self.cli_version = parse_cli_version(out.stdout or out.stderr)
+            except (OSError, subprocess.SubprocessError) as e:
+                logger.warning(f"Could not determine {self.cli_name} version: {e}")
+        return self.cli_version
 
     @property
     @abstractmethod
