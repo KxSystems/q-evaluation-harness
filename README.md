@@ -39,7 +39,7 @@ Track the performance of Large Language Models on Q/kdb+ code generation tasks u
 ## Features
 
 - 🚀 **Simple CLI**: One-command evaluation with `qeval run <dataset> <model>`.
-- 🤖 **Agent Evaluation**: Evaluate coding agents (Claude Code, Codex) that iteratively write and test Q code.
+- 🤖 **Agent Evaluation**: Evaluate coding agents (Claude Code, Codex, Antigravity) that iteratively write and test Q code.
 - 📊 **Q-HumanEval Dataset**: 164 hand-crafted Q programming problems.
 - 🔧 **Multi-Model Support**: Supports both closed-source APIs and open-source Hugging Face models.
 - 📈 **Standard Metrics**: Pass@1, Pass@5, Pass@10 with isolated execution.
@@ -132,6 +132,7 @@ Evaluate coding agents that can iteratively write, test, and fix Q solutions. Un
 |---------|-----------|-------------|
 | `claude-code` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Anthropic's agentic coding tool |
 | `codex` | [Codex](https://github.com/openai/codex) | OpenAI's agentic coding tool |
+| `antigravity` | [Antigravity CLI](https://github.com/google-antigravity/antigravity-cli) (`agy`) | Google's agentic coding tool, the official harness for Gemini 4 |
 
 ### Running Agent Evaluations
 
@@ -142,6 +143,11 @@ qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-7 \
 
 # Evaluate Codex with GPT-5.5
 qeval agent-run q-humaneval --backend codex --model gpt-5.5
+
+# Evaluate Antigravity CLI with a Gemini 4 model (needs agy 1.5.13+; see
+# "Antigravity backend" below for auth)
+qeval agent-run q-humaneval --backend antigravity --model gemini-4-argon-high \
+  --timeout 600
 
 # Install a skill (e.g. q-kdb) into agent workspaces — strongly recommended
 qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-7 \
@@ -170,9 +176,22 @@ qeval agent-run q-humaneval --backend claude-code --model claude-opus-4-7 \
   --keep-workspaces
 ```
 
+### Antigravity backend
+
+Install `agy` with `curl -fsSL https://antigravity.google/cli/install.sh | bash`. The `antigravity` backend runs `agy -p` in each workspace with `--output-format stream-json` (written to `events.jsonl` with `--save-events`), `--dangerously-skip-permissions`, and a `--print-timeout` set just past `--timeout`, so the harness timeout always fires first. Instructions go in `AGENTS.md` and skills in `.agents/skills/`.
+
+- **Auth:** Antigravity's maintainers say running `agy -p` from third-party automation is only supported with a Gemini API key (`export GEMINI_API_KEY=...`) or Vertex AI / Application Default Credentials (`AGY_ADC_AUTH`), not a signed-in Google subscription. The backend logs a warning when neither variable is set. API-key mode also needs `modelProvider` set to `"gemini"`. When `GEMINI_API_KEY` is set, the backend passes that as `--settings '{"modelProvider":"gemini"}'` for each run, so you don't need to edit `~/.gemini/antigravity-cli/settings.json`. If you pass your own `--settings` through `--extra-args`, include `"modelProvider": "gemini"` in it yourself.
+- **Models:** `--model` is passed to `agy` unchanged. Use the model name `agy` itself accepts (for example `gemini-4-hydrogen-high`).
+- **Version:** use agy 1.5.13 or later. Earlier versions report `status: "ERROR"` for runs that succeeded after a retry, which the harness would count as a failed attempt.
+- **Cost:** `agy` reports tokens, not dollars. Cost is computed from list prices in `src/agents/pricing.py` (`GEMINI_PRICES`). It has the Gemini 4 models (Carbon, Argon, Neon, Hydrogen; all effort variants) at the Standard paid tier, with Carbon and Argon at the prices that start 2026-12-01; any model not in the table gets no cost rather than a guess. Each task's raw `usage` object is kept in its result metadata, so you can check the token-field mapping against real runs.
+- **Effort:** agy puts effort in the model name (`gemini-4-hydrogen-low|medium|high|xhigh`, listed by `agy models`). Use the suffixed name for recorded runs: the bare alias (`gemini-4-hydrogen`) resolves to a default that depends on your local agy settings. `--reasoning-effort` is passed as `agy --effort` and only makes sense with the bare alias; a suffixed model plus a different `--reasoning-effort` is refused, because agy rejects that pair on every task.
+- **Quota:** a signed-in subscription is not enough for a full run. On agy 1.5.17 the Antigravity Starter Quota ran out after about 35 q-humaneval tasks (about 2.8M input tokens; agy sends about 10k input tokens even for a one-line prompt) and reset 166 hours later. One 164-task arm of Gemini 4 Hydrogen (High) is about 13M input tokens, about $0.10 per task, at API list prices. Use `GEMINI_API_KEY`.
+- **Sweeps:** `SWEEP_BACKEND=antigravity SWEEP_MODELS=gemini-4-hydrogen-high SWEEP_BASE=outputs/sweep-gemini/noskill python3 scripts/model_sweep.py`; for the q-kdb arm add `SWEEP_ARM=skilled` with its own `SWEEP_BASE` (the ledger is keyed by model, so a shared base makes the second arm reuse the first arm's results). The driver treats tasks with no `result` event, or a quota or rate-limit error, as not attempted, and waits for the reset time agy reports before retrying them.
+- **Clean room:** `--no-skills` installs no skill and passes `--disable-slash-commands`, which turns off skill expansion. `agy` has no flag to block user-level MCP servers or plugins, so check that `~/.gemini/antigravity-cli/` is clean first. Checked on agy 1.5.17: agy's own built-in skills (agy tooling, nothing about q) and its built-in `swarm` plugin still load, and agents keep web-search and subagent tools, as Claude Code agents keep theirs. agy honours `.agents/` config in every directory up to the git root, so keep the repo free of `.agents/`. On probe runs, the skilled arm read `.agents/skills/q-kdb/SKILL.md` on every task, and no agent in either arm read outside its workspace, used the web or started a subagent. Audit `events.jsonl` for this on full runs.
+
 ### Agent Skills
 
-The `--skill-dirs` option installs [Agent Skills](https://agentskills.io) into each agent workspace and instructs the agent to read them. Each path should point to a skill directory containing a `SKILL.md` file. Skills are installed into both `.claude/skills/` (for Claude Code) and `.agents/skills/` (for Codex), so the same `--skill-dirs` argument works with any backend.
+The `--skill-dirs` option installs [Agent Skills](https://agentskills.io) into each agent workspace and instructs the agent to read them. Each path should point to a skill directory containing a `SKILL.md` file. Skills are installed into both `.claude/skills/` (for Claude Code) and `.agents/skills/` (for Codex and Antigravity), so the same `--skill-dirs` argument works with any backend.
 
 > **Note:** In headless / non-interactive contexts, agents do not reliably auto-load skills based on description matching alone. The harness's built-in workflow instructions (`CLAUDE.md` / `AGENTS.md`) explicitly tell the agent to read `q-kdb/SKILL.md` before writing any Q code. If you install skills under a different name, update the instructions accordingly with `--agent-instructions`.
 
@@ -223,11 +242,11 @@ Across six months of OpenAI flagships (GPT-5.5 in April, GPT-5.6 Sol in July, GP
 Each problem is evaluated in an isolated workspace containing:
 - The problem prompt and function signature in `problem.md`
 - A starter `solution.q` with the function stub
-- A `CLAUDE.md` (Claude Code) or `AGENTS.md` (Codex) with the default workflow instructions, optionally augmented or replaced via `--agent-instructions`
+- A `CLAUDE.md` (Claude Code) or `AGENTS.md` (Codex, Antigravity) with the default workflow instructions, optionally augmented or replaced via `--agent-instructions`
 - Agent skills in `.claude/skills/` and `.agents/skills/` (if `--skill-dirs` is provided)
 - Access to a Q interpreter for testing
 
-The agent writes its final implementation to `solution.q`, iterating until it considers the work done or the per-task `--timeout` is hit. Note: neither the Claude Code CLI nor the Codex CLI enforces a turn cap, so `--max-turns` is a soft warning threshold only — `--timeout` is the enforced backstop. Results include wall time, token usage, cost, and the actual turn count per problem.
+The agent writes its final implementation to `solution.q`, iterating until it considers the work done or the per-task `--timeout` is hit. Note: none of the supported agent CLIs enforces a turn cap, so `--max-turns` is a soft warning threshold only — `--timeout` is the enforced backstop. Results include wall time, token usage, cost, and the actual turn count per problem.
 
 When `--save-events` is set, each workspace also gets an `events.jsonl` file containing the agent's full event stream (tool calls, model thinking, command results), plus an `events.stderr.log` for the CLI's debug output. These are useful for verifying which skills the agent actually loaded and where it spent its turns.
 
@@ -259,7 +278,7 @@ poetry run pytest
 ```
 
 ### Roadmap
-- [x] **Agent Evaluation**: Evaluate coding agents (Claude Code, Codex) with iterative tool use.
+- [x] **Agent Evaluation**: Evaluate coding agents (Claude Code, Codex, Antigravity) with iterative tool use.
 - [ ] **Q-MBPP**: Basic programming problems in Q.
 - [ ] **Custom Metrics**: Flexible framework for adding custom evaluation metrics beyond Pass@k.
 - [ ] **Sandboxed Execution**: Secure, isolated code evaluation environment.

@@ -648,3 +648,349 @@ class TestPricing:
         assert claude_cost_usd("claude-haiku-5-5", usage, 100_000) == pytest.approx(
             0.10 + 0.50
         )
+
+
+# --- Antigravity Backend Tests ---
+
+
+class TestAntigravityBackend:
+    """Tests for Antigravity CLI (`agy -p`) invocation (mocked subprocess).
+
+    RESULT is the shape of a real agy 1.5.13 `-p --output-format json` result
+    (gemini-3.8-flash-low), with larger numbers. In agy's usage,
+    cache_read_tokens is reported on top of input_tokens:
+    total_tokens == input_tokens + output_tokens.
+    """
+
+    RESULT = {
+        "conversation_id": "c-1",
+        "status": "SUCCESS",
+        "response": "Implemented solution.q",
+        "duration_seconds": 41.4,
+        "num_turns": 6,
+        "usage": {
+            "input_tokens": 30000,
+            "output_tokens": 2500,
+            "thinking_tokens": 1500,
+            "cache_read_tokens": 90000,
+            "total_tokens": 32500,
+        },
+    }
+
+    @pytest.fixture
+    def temp_workspace(self) -> Generator[Path, None, None]:
+        temp = Path(tempfile.mkdtemp())
+        workspace = temp / "task_7"
+        workspace.mkdir(parents=True)
+        (workspace / "solution.q").write_text("stub:{x}")
+        yield workspace
+        shutil.rmtree(temp)
+
+    def _process(self, stdout: str, returncode: int = 0) -> AsyncMock:
+        proc = AsyncMock()
+        proc.communicate = AsyncMock(return_value=(stdout.encode(), b""))
+        proc.returncode = returncode
+        return proc
+
+    def test_factory_and_files(self) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        backend = create_agent_backend("antigravity", model="gemini-4-argon-high")
+        assert isinstance(backend, AntigravityBackend)
+        assert "antigravity" in list_agent_backends()
+        assert backend.name == "antigravity"
+        assert backend.cli_name == "agy"
+        assert backend.instruction_filename == "AGENTS.md"
+        assert backend.cost_source == "list_price"
+
+    def test_skill_step_only_with_skills(self, tmp_path: Path) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        skill = tmp_path / "q-kdb"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text("# q")
+        with_skill = AntigravityBackend(model="m", skill_dirs=[str(skill)])
+        assert ".agents/skills/q-kdb/SKILL.md" in with_skill.get_default_instructions()
+        clean = AntigravityBackend(model="m", skill_dirs=[str(skill)], no_skills=True)
+        assert "SKILL.md" not in clean.get_default_instructions()
+
+    @pytest.mark.asyncio
+    async def test_invoke_builds_command(self, temp_workspace: Path) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        backend = AntigravityBackend(
+            model="gemini-4-argon-high", timeout=600.0, extra_args=["--sandbox"]
+        )
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=self._process(json.dumps(self.RESULT)),
+        ) as ex:
+            await backend.invoke("Write function", temp_workspace)
+
+        args = ex.call_args[0]
+        assert args[:3] == ("agy", "-p", "Write function")
+        assert args[args.index("--model") + 1] == "gemini-4-argon-high"
+        assert args[args.index("--output-format") + 1] == "stream-json"
+        assert "--dangerously-skip-permissions" in args
+        # agy's own print timeout must outlast the harness timeout.
+        assert args[args.index("--print-timeout") + 1] == "630s"
+        assert args[-1] == "--sandbox"
+        assert "--effort" not in args
+        assert "--disable-slash-commands" not in args
+        assert ex.call_args.kwargs["cwd"] == str(temp_workspace.resolve())
+        assert ex.call_args.kwargs["stdin"] == asyncio.subprocess.DEVNULL
+
+    def test_api_key_mode_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        assert "--settings" not in AntigravityBackend(model="m").build_command("p")
+
+        monkeypatch.setenv("GEMINI_API_KEY", "dummy")
+        args = AntigravityBackend(model="m").build_command("p")
+        assert json.loads(args[args.index("--settings") + 1]) == {
+            "modelProvider": "gemini"
+        }
+
+        # An operator-supplied --settings wins; ours is not added.
+        own = ["--settings", '{"modelProvider": "gemini", "x": 1}']
+        args = AntigravityBackend(model="m", extra_args=own).build_command("p")
+        assert args.count("--settings") == 1
+        assert args[-2:] == own
+
+    def test_effort_and_clean_room_flags(self) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        backend = create_agent_backend(
+            "antigravity", model="m", reasoning_effort="xhigh", no_skills=True
+        )
+        args = backend.build_command("p")
+        assert args[args.index("--effort") + 1] == "xhigh"
+        assert "--disable-slash-commands" in args
+
+    @pytest.mark.asyncio
+    async def test_invoke_success(self, temp_workspace: Path) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        backend = AntigravityBackend(model="gemini-3.8-flash-high", timeout=30.0)
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=self._process(json.dumps(self.RESULT)),
+        ):
+            result = await backend.invoke("Write function", temp_workspace)
+
+        assert result.success is True
+        assert result.task_id == 7
+        assert result.num_turns == 6
+        # cache reads are added back so input_tokens is all input
+        assert result.input_tokens == 120000
+        assert result.cached_input_tokens == 90000
+        assert result.output_tokens == 2500
+        assert result.metadata["thoughts_tokens"] == 1500
+        assert result.metadata["raw_usage"] == self.RESULT["usage"]
+        assert result.cost_usd is None  # 3.8 Flash is not in GEMINI_PRICES
+
+    @pytest.mark.asyncio
+    async def test_error_status_is_failure_even_on_exit_zero(
+        self, temp_workspace: Path
+    ) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        failed = {
+            "status": "ERROR",
+            "error": "quota exhausted",
+            "finished_reason": "error",
+            "num_turns": 1,
+        }
+        backend = AntigravityBackend(model="m", timeout=30.0)
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=self._process(json.dumps(failed)),
+        ):
+            result = await backend.invoke("Write function", temp_workspace)
+        assert result.success is False
+        assert result.error == "quota exhausted"
+
+    def test_stream_json_uses_result_event(self) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        events = [
+            {"type": "init", "version": "1.5.13", "model": "m"},
+            {"type": "message", "role": "assistant", "content": "working"},
+            {"type": "result", **self.RESULT},
+        ]
+        backend = AntigravityBackend(model="m", save_events=True)
+        md = backend._parse_output("\n".join(json.dumps(e) for e in events))
+        assert md["agent_version"] == "1.5.13"
+        assert md["status"] == "SUCCESS"
+        assert md["num_turns"] == 6
+        assert md["input_tokens"] == 120000
+
+    @staticmethod
+    def _nested_stream(with_result: bool = True) -> str:
+        """Shape of a real agy 1.5.17 stream-json run, trimmed to two model
+        calls (gemini-4-hydrogen-high, task 0, numbers changed)."""
+
+        def step(i, step_type, state="DONE", **extra):
+            return {
+                "event": "step_update",
+                "step_update": {
+                    "conversation_id": "c-1", "step_index": i,
+                    "state": state, "step_type": step_type, **extra,
+                },
+            }
+
+        u1 = {"input_tokens": 1000, "output_tokens": 200,
+              "thinking_tokens": 50, "cache_read_tokens": 3000,
+              "total_tokens": 1200}
+        u2 = {"input_tokens": 500, "output_tokens": 100,
+              "thinking_tokens": 10, "cache_read_tokens": 4000,
+              "total_tokens": 600}
+        events = [
+            {"event": "init", "conversation_id": "c-1",
+             "init": {"model": "m", "cwd": "/w", "tools": [],
+                      "permission_mode": "always-proceed"}},
+            step(0, "user_input"),
+            step(1, "agent_response", state="ACTIVE", text_delta="Read"),
+            step(1, "agent_response", text_delta="ing", usage=u1),
+            step(2, "tool", tool_name="read_file"),
+            step(3, "error_message"),
+            step(4, "agent_response", text_delta="Done", usage=u2),
+        ]
+        if with_result:
+            events.append({"event": "result", "result": {
+                "conversation_id": "c-1", "status": "SUCCESS",
+                "response": "Implemented", "duration_seconds": 30.0,
+                "num_turns": 1,
+                "usage": {"input_tokens": 1500, "output_tokens": 300,
+                          "thinking_tokens": 60, "cache_read_tokens": 7000,
+                          "total_tokens": 1800},
+            }})
+        return "\n".join(json.dumps(e) for e in events)
+
+    def test_nested_stream_json_result(self) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        md = AntigravityBackend(model="m")._parse_output(self._nested_stream())
+        assert md["status"] == "SUCCESS"
+        assert md["result_text"] == "Implemented"
+        # Two finished agent_response steps, not agy's per-prompt count.
+        assert md["num_turns"] == 2
+        assert md["agy_num_turns"] == 1
+        assert md["input_tokens"] == 8500
+        assert md["cached_input_tokens"] == 7000
+        assert md["output_tokens"] == 300
+
+    def test_nested_stream_json_without_result_uses_steps(self) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        md = AntigravityBackend(model="m")._parse_output(
+            self._nested_stream(with_result=False)
+        )
+        assert md["status"] is None
+        assert md["num_turns"] == 2
+        assert md["input_tokens"] == 8500
+        assert md["cached_input_tokens"] == 7000
+        assert md["output_tokens"] == 300
+
+    @pytest.mark.asyncio
+    async def test_invoke_nested_stream_success(
+        self, temp_workspace: Path
+    ) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        backend = AntigravityBackend(model="m", timeout=30.0)
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=self._process(self._nested_stream()),
+        ):
+            result = await backend.invoke("Write function", temp_workspace)
+        assert result.success is True
+        assert result.num_turns == 2
+        assert result.input_tokens == 8500
+
+    @pytest.mark.parametrize(
+        "usage",
+        [
+            # agy style: cache reads on top of input
+            {"input_tokens": 6, "cache_read_input_tokens": 4, "output_tokens": 3},
+            # Gemini API style: cached is a subset of the prompt count
+            {"promptTokenCount": 10, "cachedContentTokenCount": 4,
+             "candidatesTokenCount": 3},
+        ],
+    )
+    def test_usage_key_variants(self, usage: dict) -> None:
+        from src.agents.antigravity import _extract_usage
+
+        assert _extract_usage(usage) == {
+            "input_tokens": 10, "cached_input_tokens": 4, "output_tokens": 3,
+        }
+
+    def test_unparseable_output(self) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        md = AntigravityBackend(model="m")._parse_output("not json")
+        assert "input_tokens" not in md
+        assert md["result_text"] == "not json"
+
+    @pytest.mark.parametrize(
+        "model, expected",
+        [
+            # 1M input of which 400K cached, 100K output (thinking included):
+            # 600K*input + 400K*cached + 100K*output, per 1M tokens
+            ("gemini-4-hydrogen", 0.9 + 0.03 + 0.75),
+            ("gemini-4-hydrogen-high", 0.9 + 0.03 + 0.75),
+            ("gemini-4-neon-medium", 1.8 + 0.06 + 1.5),
+            ("gemini-4-argon-high", 2.4 + 0.08 + 2.0),
+            ("gemini-4-carbon-xhigh", 2.4 + 0.08 + 2.0),
+        ],
+    )
+    def test_gemini_4_list_prices(self, model: str, expected: float) -> None:
+        from src.agents.pricing import gemini_cost_usd
+
+        assert gemini_cost_usd(model, 1_000_000, 400_000, 100_000) == (
+            pytest.approx(expected)
+        )
+
+    def test_gemini_cost_bills_thoughts_as_output(self) -> None:
+        from src.agents import pricing
+        from src.agents.antigravity import AntigravityBackend
+        from src.agents.pricing import TokenPrices
+
+        prices = TokenPrices(2.00, 0.20, 12.00, "test", "2026-11-20")
+        with patch.dict(pricing.GEMINI_PRICES, {"gemini-test": prices}):
+            md = AntigravityBackend(model="gemini-test")._parse_output(
+                json.dumps(self.RESULT)
+            )
+        # (120000-90000)*2 + 90000*0.20 + (2500+1500)*12, per 1M tokens
+        assert md["cost_usd"] == pytest.approx(0.126)
+
+    def test_rejects_effort_conflicting_with_model_suffix(self) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        # agy 1.5.17 refuses this pair on every task.
+        with pytest.raises(ValueError, match="already selects effort"):
+            AntigravityBackend(
+                model="gemini-4-hydrogen-high", reasoning_effort="low"
+            )
+        # Matching suffix, bare alias, and no effort are all fine.
+        AntigravityBackend(model="gemini-4-hydrogen-high", reasoning_effort="high")
+        AntigravityBackend(model="gemini-4-hydrogen", reasoning_effort="low")
+        AntigravityBackend(model="gemini-4-hydrogen-high")
+
+    def test_warns_without_automation_auth(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from src.agents.antigravity import AntigravityBackend
+
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.delenv("AGY_ADC_AUTH", raising=False)
+        with caplog.at_level("WARNING"):
+            AntigravityBackend(model="m")
+        assert "GEMINI_API_KEY" in caplog.text
+
+        caplog.clear()
+        monkeypatch.setenv("GEMINI_API_KEY", "dummy")
+        with caplog.at_level("WARNING"):
+            AntigravityBackend(model="m")
+        assert "GEMINI_API_KEY" not in caplog.text

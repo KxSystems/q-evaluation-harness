@@ -888,7 +888,7 @@ def agent_run_command(args: argparse.Namespace) -> None:
 
     # Build backend kwargs
     backend_kwargs: Dict[str, Any] = {}
-    if args.backend == "codex" and args.reasoning_effort:
+    if args.backend in ("codex", "antigravity") and args.reasoning_effort:
         backend_kwargs["reasoning_effort"] = args.reasoning_effort
 
     try:
@@ -1038,13 +1038,13 @@ def main() -> None:
     # 'agent-run' subcommand
     agent_parser = subparsers.add_parser(
         "agent-run",
-        help="Evaluate coding agents (Claude Code, Codex) on Q problems",
+        help="Evaluate coding agents (Claude Code, Codex, Antigravity) on Q problems",
     )
     agent_parser.add_argument("dataset", help="Dataset name")
     agent_parser.add_argument(
         "--backend",
         required=True,
-        choices=["claude-code", "codex"],
+        choices=["claude-code", "codex", "antigravity"],
         help="Agent backend to use",
     )
     agent_parser.add_argument(
@@ -1055,8 +1055,8 @@ def main() -> None:
         type=int,
         default=DEFAULT_AGENT_MAX_TURNS,
         help=(
-            f"Soft cap on agent iterations — neither the Claude Code nor "
-            f"Codex CLI enforces a turn cap, so this is a warning threshold "
+            f"Soft cap on agent iterations — no supported agent CLI "
+            f"enforces a turn cap, so this is a warning threshold "
             f"only. --timeout is the enforced backstop. "
             f"(default: {DEFAULT_AGENT_MAX_TURNS})"
         ),
@@ -1070,8 +1070,12 @@ def main() -> None:
     agent_parser.add_argument(
         "--reasoning-effort",
         type=str,
-        default="high",
-        help="Codex reasoning effort: minimal, low, medium, high, xhigh (default: high)",
+        default=None,
+        help=(
+            "Reasoning effort. codex: minimal, low, medium, high, xhigh "
+            "(default: high). antigravity: low, medium, high, xhigh, max "
+            "(default: agy's own)"
+        ),
     )
     agent_parser.add_argument(
         "--concurrency",

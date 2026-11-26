@@ -2,6 +2,7 @@
 
 from typing import Any, List, Optional
 
+from .antigravity import AntigravityBackend
 from .base import AgentBackend
 from .claude_code import ClaudeCodeBackend
 from .codex import CodexBackend
@@ -10,6 +11,7 @@ from .codex import CodexBackend
 AGENT_BACKENDS = {
     "claude-code": ClaudeCodeBackend,
     "codex": CodexBackend,
+    "antigravity": AntigravityBackend,
 }
 
 
@@ -28,7 +30,7 @@ def create_agent_backend(
     """Create an agent backend instance.
 
     Args:
-        backend_name: One of 'claude-code', 'codex'.
+        backend_name: One of 'claude-code', 'codex', 'antigravity'.
         model: Model name passed to the agent CLI.
         max_turns: Maximum agent iterations.
         agent_instructions: Path to instruction file or raw text.
