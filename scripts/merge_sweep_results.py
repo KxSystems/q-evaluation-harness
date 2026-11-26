@@ -62,12 +62,18 @@ def stream_usage(events_path):
 def build(model):
     ledger = json.load(open(os.path.join(BASE, model, "state.json")))
     sols, res, final_dir = {}, {}, {}
+    # Runs record their backend and how it costed tasks; older Claude Code
+    # runs predate those fields.
+    backend, cost_source = "claude-code", "cli_reported"
     for d in sorted(glob.glob(os.path.join(BASE, model, "agent_*/")), key=os.path.getmtime):
         for line in open(os.path.join(d, "solutions.jsonl")):
             s = json.loads(line)
             sols[s["task_id"]] = s
             final_dir[s["task_id"]] = d
-        for r in json.load(open(os.path.join(d, "results.json")))["results"]:
+        run = json.load(open(os.path.join(d, "results.json")))
+        backend = run.get("agent_backend") or backend
+        cost_source = run.get("agent_cost_source") or cost_source
+        for r in run["results"]:
             res[r["task_id"]] = r
 
     tasks = sorted(res)
@@ -112,7 +118,7 @@ def build(model):
         "per_problem_results": [{"task_id": t, "num_samples": 1,
                                  "num_correct": int(res[t]["passed"])} for t in tasks],
         "evaluation_type": "agent",
-        "agent_backend": "claude-code",
+        "agent_backend": backend,
         "agent_model": model,
         "agent_skill": LABEL.startswith("skill"),
         "agent_effort": EFFORT,  # explicit --effort; None = Claude Code default
@@ -126,7 +132,11 @@ def build(model):
             "mean_wall_time_failed": statistics.mean(failed_wall) if failed_wall else None,
             "total_cost_usd": round(cost, 4),
             "mean_cost_usd": cost / len(results),
-            "cost_basis": "list price from token usage" if repriced else "CLI reported",
+            # Codex and Antigravity already price tasks at list price from
+            # their token counts, so their per-task cost is not a CLI figure.
+            "cost_basis": ("list price from token usage"
+                           if repriced or cost_source == "list_price"
+                           else "CLI reported"),
             "cli_reported_cost_usd": round(cli_cost, 4),
             "mean_turns": statistics.mean(turns) if turns else None,
             "median_turns": statistics.median(turns) if turns else None,

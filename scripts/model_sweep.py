@@ -20,6 +20,7 @@ starve and kill other agents — see that script's docstring).
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -102,6 +103,48 @@ def scan_aborted_codex(run_dir):
                     reset = max(reset, int(time.time() + secs))
         if not completed:
             capped.add(tid)
+    return capped, reset
+
+
+AGY_CAP_MARKERS = ("quota", "resource_exhausted", "rate limit", "rate_limit", "429")
+AGY_CAP_FALLBACK_S = 3600
+
+
+def scan_aborted_antigravity(run_dir):
+    """Antigravity (agy) flavour of scan_aborted.
+
+    agy 1.5.17 stream-json nests each payload under its event name:
+    {"event": "result", "result": {"status": ...}}. A fair attempt ends in a
+    result event. A result with status ERROR that mentions quota or a rate
+    limit means the account is capped; agy reports no reset time, so pause
+    AGY_CAP_FALLBACK_S. A stream with no result event (agy killed, or the
+    harness timeout) is retried, as for Claude Code.
+    """
+    capped, reset = set(), 0
+    for ev in glob.glob(os.path.join(run_dir, "workspaces", "task_*", "events.jsonl")):
+        tid = int(ev.split("task_")[-1].split("/")[0])
+        result = None
+        for line in open(ev, errors="ignore"):
+            if '"result"' not in line:
+                continue
+            try:
+                e = json.loads(line)
+            except Exception:
+                continue
+            if e.get("event") == "result":
+                result = e.get("result") or {}
+        if result is None:
+            capped.add(tid)
+            continue
+        if result.get("status") == "ERROR":
+            blob = json.dumps(result).lower()
+            if any(m in blob for m in AGY_CAP_MARKERS):
+                capped.add(tid)
+                # 1.5.17: "Individual quota reached. ... Resets in 165h57m34s."
+                m = re.search(r"resets in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?", blob)
+                secs = (int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60
+                        + int(m.group(3) or 0)) if m else 0
+                reset = max(reset, int(time.time() + (secs or AGY_CAP_FALLBACK_S)))
     return capped, reset
 
 
@@ -199,7 +242,8 @@ def run_batch(model, ids):
     res_blob = json.load(open(os.path.join(run_dir, "results.json")))
     res = {r["task_id"]: r["passed"] for r in res_blob["results"]}
 
-    scan = scan_aborted_codex if BACKEND == "codex" else scan_aborted
+    scan = {"codex": scan_aborted_codex,
+            "antigravity": scan_aborted_antigravity}.get(BACKEND, scan_aborted)
     capped, reset = scan(run_dir)
     passed, failed, pending = set(), set(), set()
     for t in ids:
